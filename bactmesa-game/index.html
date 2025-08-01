@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<!-- Created with https://packager.turbowarp.org/ -->
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- We only include this to explicitly loosen the CSP of various packager environments. It does not provide any security. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src * 'self' 'unsafe-inline' 'unsafe-eval' data: blob:">
+  <title>Bacterias Na Mesa</title>
+  <style>
+    body {
+      color: #ffffff;
+      font-family: sans-serif;
+      overflow: hidden;
+      margin: 0;
+      padding: 0;
+    }
+    :root, body.is-fullscreen {
+      background-color: #000000;
+    }
+    [hidden] {
+      display: none !important;
+    }
+    h1 {
+      font-weight: normal;
+    }
+    a {
+      color: inherit;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    #app, #loading, #error, #launch {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      cursor: default;
+      user-select: none;
+      -webkit-user-select: none;
+      background-color: #000000;
+    }
+    #launch {
+      background-color: rgba(0, 0, 0, 0.7);
+      cursor: pointer;
+    }
+    .green-flag {
+      width: 80px;
+      height: 80px;
+      padding: 16px;
+      border-radius: 100%;
+      background: rgba(255, 255, 255, 0.75);
+      border: 3px solid hsla(0, 100%, 100%, 1);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      box-sizing: border-box;
+    }
+    #loading {
+      
+    }
+    .progress-bar-outer {
+      border: 1px solid currentColor;
+      height: 10px;
+      width: 200px;
+      max-width: 200px;
+    }
+    .progress-bar-inner {
+      height: 100%;
+      width: 0;
+      background-color: currentColor;
+    }
+    .loading-text, noscript {
+      font-weight: normal;
+      font-size: 36px;
+      margin: 0 0 16px;
+    }
+    .loading-image {
+      margin: 0 0 16px;
+    }
+    #error-message, #error-stack {
+      font-family: monospace;
+      max-width: 600px;
+      white-space: pre-wrap;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    #error-stack {
+      text-align: left;
+      max-height: 200px;
+      overflow: auto;
+    }
+    .control-button {
+      width: 2rem;
+      height: 2rem;
+      padding: 0.375rem;
+      margin-top: 0.5rem;
+      margin-bottom: 0.5rem;
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: pointer;
+      border: 0;
+      border-radius: 4px;
+    }
+    .control-button-highlight:hover {
+      background: #ff4c4c26;
+    }
+    .control-button-highlight.active {
+      background: #ff4c4c59;
+    }
+    .fullscreen-button {
+      background: white;
+    }
+    .standalone-fullscreen-button {
+      position: absolute;
+      top: 0;
+      right: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      border-radius: 0 0 0 4px;
+      padding: 4px;
+      cursor: pointer;
+    }
+    .sc-canvas {
+      cursor: auto;
+    }
+    .sc-monitor-root[data-opcode^="data_"] .sc-monitor-value-color {
+      background-color: #ff8c1a;
+    }
+    .sc-monitor-row-value-outer {
+      background-color: #fc662c;
+    }
+    .sc-monitor-row-value-editing .sc-monitor-row-value-outer {
+      background-color: #e25b27;
+    }
+    
+  </style>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="data:image/png;base64,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">
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="launch" class="screen" hidden title="Click to start">
+    <div class="green-flag">
+      <svg viewBox="0 0 16.63 17.5" width="42" height="44">
+        <defs><style>.cls-1,.cls-2{fill:#4cbf56;stroke:#45993d;stroke-linecap:round;stroke-linejoin:round;}.cls-2{stroke-width:1.5px;}</style></defs>
+        <path class="cls-1" d="M.75,2A6.44,6.44,0,0,1,8.44,2h0a6.44,6.44,0,0,0,7.69,0V12.4a6.44,6.44,0,0,1-7.69,0h0a6.44,6.44,0,0,0-7.69,0"/>
+        <line class="cls-2" x1="0.75" y1="16.75" x2="0.75" y2="0.75"/>
+      </svg>
+    </div>
+  </div>
+
+  <div id="loading" class="screen">
+    <noscript>Enable JavaScript</noscript>
+    
+    
+    <div class="progress-bar-outer"><div class="progress-bar-inner" id="loading-inner"></div></div>
+  </div>
+
+  <div id="error" class="screen" hidden>
+    <h1>Error</h1>
+    <details>
+      <summary id="error-message"></summary>
+      <p id="error-stack"></p>
+    </details>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    const appElement = document.getElementById('app');
+    const launchScreen = document.getElementById('launch');
+    const loadingScreen = document.getElementById('loading');
+    const loadingInner = document.getElementById('loading-inner');
+    const errorScreen = document.getElementById('error');
+    const errorScreenMessage = document.getElementById('error-message');
+    const errorScreenStack = document.getElementById('error-stack');
+
+    const handleError = (error) => {
+      console.error(error);
+      if (!errorScreen.hidden) return;
+      errorScreen.hidden = false;
+      errorScreenMessage.textContent = '' + error;
+      let debug = error && error.stack || 'no stack';
+      debug += '\nUser agent: ' + navigator.userAgent;
+      errorScreenStack.textContent = debug;
+    };
+    const setProgress = (progress) => {
+      if (loadingInner) loadingInner.style.width = progress * 100 + '%';
+    };
+    const interpolate = (a, b, t) => a + t * (b - a);
+
+    try {
+      setProgress(0.1);
+
+      const scaffolding = new Scaffolding.Scaffolding();
+      scaffolding.width = 640;
+      scaffolding.height = 360;
+      scaffolding.resizeMode = "preserve-ratio";
+      scaffolding.editableLists = false;
+      scaffolding.usePackagedRuntime = true;
+      scaffolding.setup();
+      scaffolding.appendTo(appElement);
+
+      const vm = scaffolding.vm;
+      window.scaffolding = scaffolding;
+      window.vm = scaffolding.vm;
+      window.Scratch = {
+        vm,
+        renderer: vm.renderer,
+        audioEngine: vm.runtime.audioEngine,
+        bitmapAdapter: vm.runtime.v2BitmapAdapter,
+        videoProvider: vm.runtime.ioDevices.video.provider
+      };
+
+      scaffolding.setUsername("player####".replace(/#/g, () => Math.floor(Math.random() * 10)));
+      scaffolding.setAccentColor("#ff4c4c");
+
+      try {
+        scaffolding.addCloudProvider(new Scaffolding.Cloud.WebSocketProvider(["wss://clouddata.turbowarp.org","wss://clouddata.turbowarp.xyz"], "p4-@Bacterias Na Mesa.sb3"));
+      } catch (error) {
+        console.error(error);
+      }
+
+      vm.setTurboMode(false);
+      if (vm.setInterpolation) vm.setInterpolation(false);
+      if (vm.setFramerate) vm.setFramerate(30);
+      if (vm.renderer.setUseHighQualityRender) vm.renderer.setUseHighQualityRender(false);
+      if (vm.setRuntimeOptions) vm.setRuntimeOptions({
+        fencing: true,
+        miscLimits: true,
+        maxClones: 300,
+      });
+      if (vm.setCompilerOptions) vm.setCompilerOptions({
+        enabled: true,
+        warpTimer: false
+      });
+      if (vm.renderer.setMaxTextureDimension) vm.renderer.setMaxTextureDimension(2048);
+
+      // enforcePrivacy threat model only makes sense in the editor
+      if (vm.runtime.setEnforcePrivacy) vm.runtime.setEnforcePrivacy(false);
+
+      if (typeof ScaffoldingAddons !== 'undefined') {
+        ScaffoldingAddons.run(scaffolding, {"gamepad":false,"pointerlock":false,"specialCloudBehaviors":false,"unsafeCloudBehaviors":false,"pause":false});
+      }
+
+      scaffolding.setExtensionSecurityManager({
+        getSandboxMode: () => 'unsandboxed',
+        canLoadExtensionFromProject: () => true
+      });
+      for (const extension of ["data:text/javascript;,(function(Scratch)%20%7B%20%2F%2F%20Name%3A%20Key%20Simulation%0A%2F%2F%20ID%3A%20cubesterKeySimulation%0A%2F%2F%20Description%3A%20Simulate%20key%20presses%20and%20mouse%20clicks.%0A%2F%2F%20By%3A%20CubesterYT%20%3Chttps%3A%2F%2Fscratch.mit.edu%2Fusers%2FCubesterYT%2F%3E%0A%2F%2F%20License%3A%20MIT%20AND%20MPL-2.0%0A%0A%2F*%20generated%20l10n%20code%20*%2FScratch.translate.setup(%7B%22de%22%3A%7B%22_Key%20Simulation%22%3A%22Tastensimulation%22%7D%2C%22fi%22%3A%7B%22_Key%20Simulation%22%3A%22N%C3%A4pp%C3%A4inj%C3%A4ljittely%22%2C%22_backspace%22%3A%22askelpalautinta%22%2C%22_caps%20lock%22%3A%22aakkoslukkoa%22%2C%22_control%22%3A%22control-n%C3%A4pp%C3%A4int%C3%A4%22%2C%22_delete%22%3A%22poiston%C3%A4pp%C3%A4int%C3%A4%22%2C%22_down%20arrow%22%3A%22nuolta%20alas%22%2C%22_end%22%3A%22loppun%C3%A4pp%C3%A4int%C3%A4%22%2C%22_enter%22%3A%22enteri%C3%A4%22%2C%22_escape%22%3A%22poisp%C3%A4%C3%A4sy%C3%A4%22%2C%22_home%22%3A%22kotin%C3%A4pp%C3%A4int%C3%A4%22%2C%22_insert%22%3A%22lis%C3%A4ysn%C3%A4pp%C3%A4int%C3%A4%22%2C%22_left%22%3A%22vasenta%22%2C%22_left%20arrow%22%3A%22nuolta%20vasemmalle%22%2C%22_middle%22%3A%22keskimm%C3%A4ist%C3%A4%22%2C%22_move%20mouse%20to%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22%3A%22siirr%C3%A4%20hiiri%20sijaintiin%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22%2C%22_page%20down%22%3A%22alas-n%C3%A4pp%C3%A4int%C3%A4%22%2C%22_page%20up%22%3A%22yl%C3%B6s-n%C3%A4pp%C3%A4int%C3%A4%22%2C%22_right%22%3A%22oikeaa%22%2C%22_right%20arrow%22%3A%22nuolta%20oikealle%22%2C%22_scroll%20lock%22%3A%22vierityslukkoa%22%2C%22_shift%22%3A%22vaihton%C3%A4pp%C3%A4int%C3%A4%22%2C%22_space%22%3A%22v%C3%A4lily%C3%B6nti%C3%A4%22%2C%22_up%20arrow%22%3A%22nuolta%20yl%C3%B6s%22%7D%2C%22it%22%3A%7B%22_Key%20Simulation%22%3A%22Simulazione%20Tasti%22%2C%22_caps%20lock%22%3A%22blocco%20maiuscole%22%2C%22_delete%22%3A%22cancella%22%2C%22_down%20arrow%22%3A%22freccia%20gi%C3%B9%22%2C%22_end%22%3A%22fine%22%2C%22_enter%22%3A%22invio%22%2C%22_home%22%3A%22inizio%22%2C%22_insert%22%3A%22inserisci%22%2C%22_left%22%3A%22a%20sinistra%22%2C%22_left%20arrow%22%3A%22freccia%20sinistra%22%2C%22_middle%22%3A%22centrale%22%2C%22_page%20down%22%3A%22pagina%20gi%C3%B9%22%2C%22_page%20up%22%3A%22pagina%20su%22%2C%22_right%22%3A%22a%20destra%22%2C%22_right%20arrow%22%3A%22freccia%20destra%22%2C%22_scroll%20lock%22%3A%22blocco%20scorrimento%22%2C%22_space%22%3A%22spazio%22%2C%22_up%20arrow%22%3A%22freccia%20su%22%7D%2C%22ja%22%3A%7B%22_Key%20Simulation%22%3A%22%E3%82%AD%E3%83%BC%E3%82%B7%E3%83%9F%E3%83%A5%E3%83%AC%E3%83%BC%E3%82%B7%E3%83%A7%E3%83%B3%22%2C%22_backspace%22%3A%22Backspace%22%2C%22_caps%20lock%22%3A%22Caps%20Lock%22%2C%22_control%22%3A%22Ctrl%22%2C%22_delete%22%3A%22Delete%22%2C%22_down%20arrow%22%3A%22%E4%B8%8B%E5%90%91%E3%81%8D%E7%9F%A2%E5%8D%B0%22%2C%22_end%22%3A%22End%22%2C%22_enter%22%3A%22Enter%22%2C%22_escape%22%3A%22Escape%22%2C%22_home%22%3A%22Home%22%2C%22_insert%22%3A%22Insert%22%2C%22_left%22%3A%22%E5%B7%A6%E3%83%9C%E3%82%BF%E3%83%B3%22%2C%22_left%20arrow%22%3A%22%E5%B7%A6%E5%90%91%E3%81%8D%E7%9F%A2%E5%8D%B0%22%2C%22_middle%22%3A%22%E3%83%9B%E3%82%A4%E3%83%BC%E3%83%AB%22%2C%22_move%20mouse%20to%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22%3A%22%E3%83%9E%E3%82%A6%E3%82%B9%E3%81%AEx%E5%BA%A7%E6%A8%99%E3%82%92%5BX%5D%E3%80%81y%E5%BA%A7%E6%A8%99%E3%82%92%5BY%5D%E3%81%AB%E3%81%99%E3%82%8B%22%2C%22_page%20down%22%3A%22Page%20Down%22%2C%22_page%20up%22%3A%22Page%20Up%22%2C%22_right%22%3A%22%E5%8F%B3%E3%83%9C%E3%82%BF%E3%83%B3%22%2C%22_right%20arrow%22%3A%22%E5%8F%B3%E5%90%91%E3%81%8D%E7%9F%A2%E5%8D%B0%22%2C%22_scroll%20lock%22%3A%22Scroll%20Lock%22%2C%22_shift%22%3A%22Shift%22%2C%22_space%22%3A%22%E3%82%B9%E3%83%9A%E3%83%BC%E3%82%B9%22%2C%22_up%20arrow%22%3A%22%E4%B8%8A%E5%90%91%E3%81%8D%E7%9F%A2%E5%8D%B0%22%7D%2C%22ko%22%3A%7B%22_Key%20Simulation%22%3A%22%ED%82%A4%20%EC%8B%9C%EB%AE%AC%EB%A0%88%EC%9D%B4%EC%85%98%22%2C%22_backspace%22%3A%22%EB%B0%B1%EC%8A%A4%ED%8E%98%EC%9D%B4%EC%8A%A4%22%2C%22_control%22%3A%22ctrl%22%2C%22_down%20arrow%22%3A%22%EC%95%84%EB%9E%98%EC%AA%BD%20%ED%99%94%EC%82%B4%ED%91%9C%22%2C%22_enter%22%3A%22%EC%97%94%ED%84%B0%22%2C%22_escape%22%3A%22esc%22%2C%22_left%22%3A%22%EC%99%BC%EC%AA%BD%22%2C%22_left%20arrow%22%3A%22%EC%99%BC%EC%AA%BD%20%ED%99%94%EC%82%B4%ED%91%9C%22%2C%22_middle%22%3A%22%EA%B0%80%EC%9A%B4%EB%8D%B0%22%2C%22_move%20mouse%20to%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22%3A%22%EB%A7%88%EC%9A%B0%EC%8A%A4%EB%A5%BC%20x%3A%5BX%5D%20y%3A%5BY%5D%20(%EC%9C%BC)%EB%A1%9C%20%EC%9D%B4%EB%8F%99%ED%95%98%EA%B8%B0%22%2C%22_right%22%3A%22%EC%98%A4%EB%A5%B8%EC%AA%BD%22%2C%22_right%20arrow%22%3A%22%EC%98%A4%EB%A5%B8%EC%AA%BD%20%ED%99%94%EC%82%B4%ED%91%9C%22%2C%22_shift%22%3A%22%EC%8B%9C%ED%94%84%ED%8A%B8%22%2C%22_space%22%3A%22%EC%8A%A4%ED%8E%98%EC%9D%B4%EC%8A%A4%22%2C%22_up%20arrow%22%3A%22%EC%9C%84%EC%AA%BD%20%ED%99%94%EC%82%B4%ED%91%9C%22%7D%2C%22nb%22%3A%7B%22_Key%20Simulation%22%3A%22N%C3%B8kkel%20simulering%22%2C%22_backspace%22%3A%22tilbakestill%22%2C%22_control%22%3A%22kontroll%22%2C%22_delete%22%3A%22slett%22%2C%22_down%20arrow%22%3A%22nedoverpil%22%2C%22_end%22%3A%22slutt%22%2C%22_enter%22%3A%22skriv%20inn%22%2C%22_home%22%3A%22hjem%22%2C%22_insert%22%3A%22sett%20inn%22%2C%22_left%22%3A%22venstre%22%2C%22_left%20arrow%22%3A%22venstre%20pil%22%2C%22_middle%22%3A%22middels%22%2C%22_page%20down%22%3A%22side%20ned%22%2C%22_page%20up%22%3A%22side%20opp%22%2C%22_right%22%3A%22h%C3%B8yre%22%2C%22_right%20arrow%22%3A%22h%C3%B8yre%20pil%22%2C%22_scroll%20lock%22%3A%22rullel%C3%A5s%22%2C%22_space%22%3A%22mellomrom%22%2C%22_up%20arrow%22%3A%22oppoverpil%22%7D%2C%22nl%22%3A%7B%22_Key%20Simulation%22%3A%22Toetsen%20simuleren%22%2C%22_down%20arrow%22%3A%22pijltje%20omlaag%22%2C%22_left%22%3A%22linker%22%2C%22_left%20arrow%22%3A%22pijltje%20links%22%2C%22_middle%22%3A%22middelste%22%2C%22_move%20mouse%20to%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22%3A%22verplaats%20muis%20naar%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22%2C%22_right%22%3A%22rechter%22%2C%22_right%20arrow%22%3A%22pijltje%20rechts%22%2C%22_space%22%3A%22spatiebalk%22%2C%22_up%20arrow%22%3A%22pijltje%20omhoog%22%7D%2C%22pl%22%3A%7B%22_space%22%3A%22spacja%22%7D%2C%22ru%22%3A%7B%22_Key%20Simulation%22%3A%22%D0%A1%D0%B8%D0%BC%D1%83%D0%BB%D1%8F%D1%86%D0%B8%D1%8F%20%D0%9A%D0%BB%D0%B0%D0%B2%D0%B8%D1%88%22%2C%22_backspace%22%3A%22%D0%B7%D0%B0%D0%B4%D0%BD%D0%B8%D0%B9%20%D0%BF%D1%80%D0%BE%D0%B1%D0%B5%D0%BB%22%2C%22_caps%20lock%22%3A%22%D0%BB%D0%BE%D0%BA%20%D0%9A%D0%90%D0%9F%D0%A1%D0%90%22%2C%22_control%22%3A%22%D0%BA%D0%BE%D0%BD%D1%82%D1%80%D0%BE%D0%BB%22%2C%22_delete%22%3A%22%D1%83%D0%B4%D0%B0%D0%BB%D0%B8%D1%82%D1%8C%22%2C%22_down%20arrow%22%3A%22%D1%81%D1%82%D1%80%D0%B5%D0%BB%D0%BA%D0%B0%20%D0%B2%D0%BD%D0%B8%D0%B7%22%2C%22_end%22%3A%22%D0%BA%D0%BE%D0%BD%D0%B5%D1%86%22%2C%22_enter%22%3A%22%D0%B2%D0%B2%D0%BE%D0%B4%22%2C%22_escape%22%3A%22%D1%8D%D1%81%D0%BA%D0%B5%D0%B9%D0%BF%22%2C%22_home%22%3A%22%D0%B4%D0%BE%D0%BC%D0%BE%D0%B9%22%2C%22_insert%22%3A%22%D0%B2%D1%81%D1%82%D0%B0%D0%B2%D0%B8%D1%82%D1%8C%22%2C%22_left%22%3A%22%D0%BB%D0%B5%D0%B2%D0%BE%D0%BC%D1%83%20%D0%BA%D1%80%D0%B0%D1%8E%22%2C%22_left%20arrow%22%3A%22%D1%81%D1%82%D1%80%D0%B5%D0%BB%D0%BA%D0%B0%20%D0%BD%D0%B0%D0%BB%D0%B5%D0%B2%D0%BE%22%2C%22_middle%22%3A%22%D1%81%D0%B5%D1%80%D0%B5%D0%B4%D0%B8%D0%BD%D0%B0%22%2C%22_move%20mouse%20to%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22%3A%22%D0%BF%D0%B5%D1%80%D0%B5%D0%BC%D0%B5%D1%81%D1%82%D0%B8%D1%82%D1%8C%20%D0%BC%D1%8B%D1%88%D1%8C%20%D0%B2%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22%2C%22_page%20down%22%3A%22%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0%20%D0%B2%D0%BD%D0%B8%D0%B7%22%2C%22_page%20up%22%3A%22%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0%20%D0%B2%D0%B2%D0%B5%D1%80%D1%85%22%2C%22_right%22%3A%22%D0%BF%D1%80%D0%B0%D0%B2%D0%BE%D0%BC%D1%83%20%D0%BA%D1%80%D0%B0%D1%8E%22%2C%22_right%20arrow%22%3A%22%D1%81%D1%82%D1%80%D0%B5%D0%BB%D0%BA%D0%B0%20%D0%BD%D0%B0%D0%BF%D1%80%D0%B0%D0%B2%D0%BE%22%2C%22_scroll%20lock%22%3A%22%D0%BB%D0%BE%D0%BA%20%D0%BA%D1%80%D1%83%D1%87%D0%B5%D0%BD%D0%B8%D1%8F%22%2C%22_shift%22%3A%22%D1%88%D0%B8%D1%84%D1%82%22%2C%22_space%22%3A%22%D0%BF%D1%80%D0%BE%D0%B1%D0%BB%D0%B5%22%2C%22_up%20arrow%22%3A%22%D1%81%D1%82%D1%80%D0%B5%D0%BB%D0%BA%D0%B0%20%D0%B2%D0%B2%D0%B5%D1%80%D1%85%22%7D%2C%22tr%22%3A%7B%22_Key%20Simulation%22%3A%22Anahtar%20Sim%C3%BClasyon%22%7D%2C%22uk%22%3A%7B%22_Key%20Simulation%22%3A%22%D0%A1%D0%B8%D0%BC%D1%83%D0%BB%D1%8F%D1%86%D1%96%D1%8F%20%D0%9A%D0%BB%D0%B0%D0%B2%D1%96%D1%88%22%2C%22_down%20arrow%22%3A%22%D1%81%D1%82%D1%80%D1%96%D0%BB%D0%BA%D1%83%20%D0%B2%D0%BD%D0%B8%D0%B7%22%2C%22_enter%22%3A%22%D1%83%D0%B2%D1%96%D0%B9%D1%82%D0%B8%22%2C%22_left%22%3A%22%D0%BB%D1%96%D0%B2%D1%83%22%2C%22_left%20arrow%22%3A%22%D1%81%D1%82%D1%80%D1%96%D0%BB%D0%BA%D1%83%20%D0%BB%D1%96%D0%B2%D0%BE%D1%80%D1%83%D1%87%22%2C%22_middle%22%3A%22%D1%81%D0%B5%D1%80%D0%B5%D0%B4%D0%BD%D1%8E%22%2C%22_move%20mouse%20to%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22%3A%22%D0%BF%D0%B5%D1%80%D0%B5%D0%BC%D1%96%D1%81%D1%82%D0%B8%D1%82%D0%B8%20%D0%B2%D0%BA%D0%B0%D0%B7%D1%96%D0%B2%D0%BD%D0%B8%D0%BA%20%D0%B2%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22%2C%22_right%22%3A%22%D0%BF%D1%80%D0%B0%D0%B2%D1%83%22%2C%22_right%20arrow%22%3A%22%D1%81%D1%82%D1%80%D1%96%D0%BB%D0%BA%D1%83%20%D0%BF%D1%80%D0%B0%D0%B2%D0%BE%D1%80%D1%83%D1%87%22%2C%22_space%22%3A%22%D0%BF%D1%80%D0%BE%D0%B1%D1%96%D0%BB%22%2C%22_up%20arrow%22%3A%22%D1%81%D1%82%D1%80%D1%96%D0%BB%D0%BA%D1%83%20%D0%B2%D0%B3%D0%BE%D1%80%D1%83%22%7D%2C%22zh-cn%22%3A%7B%22_Key%20Simulation%22%3A%22%E6%A8%A1%E6%8B%9F%E6%8C%89%E9%94%AE%22%2C%22_caps%20lock%22%3A%22CapsLock%22%2C%22_control%22%3A%22Ctrl%22%2C%22_down%20arrow%22%3A%22%E2%86%93%22%2C%22_end%22%3A%22End%22%2C%22_escape%22%3A%22Esc%22%2C%22_home%22%3A%22Home%22%2C%22_insert%22%3A%22Insert%22%2C%22_left%22%3A%22%E5%B7%A6%E9%94%AE%22%2C%22_left%20arrow%22%3A%22%E2%86%90%22%2C%22_middle%22%3A%22%E4%B8%AD%E9%94%AE%22%2C%22_move%20mouse%20to%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22%3A%22%E5%B0%86%E9%BC%A0%E6%A0%87%E7%A7%BB%E5%88%B0%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22%2C%22_page%20down%22%3A%22PageDown%22%2C%22_page%20up%22%3A%22PageUp%22%2C%22_right%22%3A%22%E5%8F%B3%E9%94%AE%22%2C%22_right%20arrow%22%3A%22%E2%86%92%22%2C%22_scroll%20lock%22%3A%22ScrollLock%22%2C%22_space%22%3A%22%E7%A9%BA%E6%A0%BC%22%2C%22_up%20arrow%22%3A%22%E2%86%91%22%7D%7D)%3B%2F*%20end%20generated%20l10n%20code%20*%2F(function%20(Scratch)%20%7B%0A%20%20%22use%20strict%22%3B%0A%0A%20%20const%20icon%20%3D%20%60data%3Aimage%2Fsvg%2Bxml%3B%2C%24%7BencodeURIComponent(%60%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2264.412%22%20height%3D%2264.412%22%3E%3Cg%20stroke-miterlimit%3D%2210%22%20data-paper-data%3D%22%7B%26quot%3BisPaintingLayer%26quot%3B%3Atrue%7D%22%20style%3D%22mix-blend-mode%3Anormal%22%3E%3Cpath%20fill%3D%22%23bf0000%22%20stroke%3D%22maroon%22%20stroke-width%3D%223.5%22%20d%3D%22M1.75%2032.206c0-16.82%2013.636-30.456%2030.456-30.456s30.456%2013.636%2030.456%2030.456-13.636%2030.456-30.456%2030.456S1.75%2049.026%201.75%2032.206z%22%2F%3E%3Cpath%20fill%3D%22none%22%20d%3D%22M.066%2064.346V.066h64.28v64.28z%22%2F%3E%3Cpath%20fill%3D%22%23fff%22%20d%3D%22M17.988%2033.804c-2.648%200-4.768-2.03-4.795-4.795-.136-13.804%205.217-13.443%2011.823-13.618%202.547-.067%209.038%200%2013.68%200%206.427%200%2012.15.676%2012.523%2013.618.05%201.697-2.146%204.795-4.795%204.795zM20.254%2049.022c-2.743%200-4.966-2.147-4.966-4.795l-2.096-9.435c0-.368%202.223%202.526%204.965%202.526h28.097c2.743%200%204.966-3.374%204.966-3.126l-2.096%2010.035c0%202.648-2.223%204.795-4.966%204.795z%22%2F%3E%3Cpath%20fill%3D%22%23bf0000%22%20fill-rule%3D%22evenodd%22%20d%3D%22M25.604%2025.55h3.199l1.374-6.151c.148-.705%201.208-1.202%202.36-1.098.93.08%201.655.543%201.768%201.098l1.374%206.15h3.125c.89%200%201.32.66.705%201.04l-6.598%204.116c-.39.231-1.024.231-1.394%200l-6.62-4.115c-.613-.382-.167-1.04.707-1.04%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E%60)%7D%60%3B%0A%0A%20%20%2F%2F%20This%20is%20from%20the%20Scratch%20Addons%20gamepad%20addon%2C%20which%20normally%20could%20be%20a%20problem%20because%20it%20is%20GPLv3%2C%0A%20%20%2F%2F%20but%20I%20(GarboMuffin)%20wrote%20that%20code%20so%20there%20is%20no%20problem.%0A%20%20let%20getCanvasSize%3B%0A%20%20if%20(window.ResizeObserver)%20%7B%0A%20%20%20%20let%20canvasWidth%20%3D%20Scratch.vm.runtime.stageWidth%3B%0A%20%20%20%20let%20canvasHeight%20%3D%20Scratch.vm.runtime.stageHeight%3B%0A%20%20%20%20const%20resize%20%3D%20new%20ResizeObserver((entries)%20%3D%3E%20%7B%0A%20%20%20%20%20%20for%20(const%20entry%20of%20entries)%20%7B%0A%20%20%20%20%20%20%20%20canvasWidth%20%3D%20entry.contentRect.width%3B%0A%20%20%20%20%20%20%20%20canvasHeight%20%3D%20entry.contentRect.height%3B%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D)%3B%0A%20%20%20%20resize.observe(Scratch.vm.runtime.renderer.canvas)%3B%0A%20%20%20%20getCanvasSize%20%3D%20()%20%3D%3E%20%5BcanvasWidth%2C%20canvasHeight%5D%3B%0A%20%20%7D%20else%20%7B%0A%20%20%20%20getCanvasSize%20%3D%20()%20%3D%3E%20%7B%0A%20%20%20%20%20%20const%20rectangle%20%3D%0A%20%20%20%20%20%20%20%20Scratch.vm.runtime.renderer.canvas.getBoundingClientRect()%3B%0A%20%20%20%20%20%20return%20%5Brectangle.width%2C%20rectangle.height%5D%3B%0A%20%20%20%20%7D%3B%0A%20%20%7D%0A%0A%20%20let%20simulatedX%20%3D%200%3B%0A%20%20let%20simulatedY%20%3D%200%3B%0A%20%20const%20postMouseData%20%3D%20(data)%20%3D%3E%20%7B%0A%20%20%20%20const%20%5BrectangleWidth%2C%20rectangleHeight%5D%20%3D%20getCanvasSize()%3B%0A%20%20%20%20Scratch.vm.postIOData(%22mouse%22%2C%20%7B%0A%20%20%20%20%20%20...data%2C%0A%20%20%20%20%20%20canvasWidth%3A%20rectangleWidth%2C%0A%20%20%20%20%20%20canvasHeight%3A%20rectangleHeight%2C%0A%20%20%20%20%20%20x%3A%0A%20%20%20%20%20%20%20%20(simulatedX%20%2B%20Scratch.vm.runtime.stageWidth%20%2F%202)%20*%0A%20%20%20%20%20%20%20%20(rectangleWidth%20%2F%20Scratch.vm.runtime.stageWidth)%2C%0A%20%20%20%20%20%20y%3A%0A%20%20%20%20%20%20%20%20(Scratch.vm.runtime.stageHeight%20%2F%202%20-%20simulatedY)%20*%0A%20%20%20%20%20%20%20%20(rectangleHeight%20%2F%20Scratch.vm.runtime.stageHeight)%2C%0A%20%20%20%20%7D)%3B%0A%20%20%7D%3B%0A%0A%20%20%2F**%0A%20%20%20*%20%40param%20%7Bunknown%7D%20seconds%0A%20%20%20*%20%40param%20%7Bunknown%7D%20andWait%0A%20%20%20*%20%40param%20%7B()%20%3D%3E%20void%7D%20callback%0A%20%20%20*%20%40returns%20%7BPromise%3Cvoid%3E%7Cvoid%7D%0A%20%20%20*%2F%0A%20%20const%20doLater%20%3D%20(seconds%2C%20andWait%2C%20callback)%20%3D%3E%20%7B%0A%20%20%20%20const%20ms%20%3D%20Scratch.Cast.toNumber(seconds)%20*%201000%3B%0A%0A%20%20%20%20if%20(Scratch.Cast.toString(andWait)%20%3D%3D%3D%20%22and%20wait%22)%20%7B%0A%20%20%20%20%20%20return%20new%20Promise((resolve)%20%3D%3E%20%7B%0A%20%20%20%20%20%20%20%20setTimeout(()%20%3D%3E%20%7B%0A%20%20%20%20%20%20%20%20%20%20callback()%3B%0A%20%20%20%20%20%20%20%20%20%20resolve()%3B%0A%20%20%20%20%20%20%20%20%7D%2C%20ms)%3B%0A%20%20%20%20%20%20%7D)%3B%0A%20%20%20%20%7D%0A%0A%20%20%20%20setTimeout(callback%2C%20ms)%3B%0A%20%20%20%20%2F%2F%20don't%20return%20a%20Promise%20at%20all%2C%20otherwise%20the%20block%20waits%20for%201%20frame%0A%20%20%7D%3B%0A%0A%20%20class%20KeySimulation%20%7B%0A%20%20%20%20getInfo()%20%7B%0A%20%20%20%20%20%20return%20%7B%0A%20%20%20%20%20%20%20%20id%3A%20%22cubesterKeySimulation%22%2C%0A%20%20%20%20%20%20%20%20name%3A%20Scratch.translate(%22Key%20Simulation%22)%2C%0A%20%20%20%20%20%20%20%20color1%3A%20%22%23BF0000%22%2C%0A%20%20%20%20%20%20%20%20color2%3A%20%22%23800000%22%2C%0A%20%20%20%20%20%20%20%20menuIconURI%3A%20icon%2C%0A%20%20%20%20%20%20%20%20docsURI%3A%20%22https%3A%2F%2Fextensions.turbowarp.org%2FCubesterYT%2FKeySimulation%22%2C%0A%0A%20%20%20%20%20%20%20%20blocks%3A%20%5B%0A%20%20%20%20%20%20%20%20%20%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20opcode%3A%20%22pressKey%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20text%3A%20Scratch.translate(%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22press%20%5BKEY%5D%20for%20%5BSECONDS%5D%20seconds%20and%20%5BAND_WAIT%5D%22%0A%20%20%20%20%20%20%20%20%20%20%20%20)%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20blockType%3A%20Scratch.BlockType.COMMAND%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20arguments%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20KEY%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20type%3A%20Scratch.ArgumentType.STRING%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20menu%3A%20%22KEYS%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20SECONDS%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20type%3A%20Scratch.ArgumentType.NUMBER%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20defaultValue%3A%20%220.1%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20AND_WAIT%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20type%3A%20Scratch.ArgumentType.STRING%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20menu%3A%20%22AND_WAIT%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20opcode%3A%20%22clickMouse%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20text%3A%20Scratch.translate(%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22click%20%5BBUTTON%5D%20mouse%20button%20at%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%20for%20%5BSECONDS%5D%20seconds%20and%20%5BAND_WAIT%5D%22%0A%20%20%20%20%20%20%20%20%20%20%20%20)%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20blockType%3A%20Scratch.BlockType.COMMAND%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20arguments%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20BUTTON%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20type%3A%20Scratch.ArgumentType.STRING%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20menu%3A%20%22BUTTONS%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20X%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20type%3A%20Scratch.ArgumentType.NUMBER%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20defaultValue%3A%20%220%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20Y%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20type%3A%20Scratch.ArgumentType.NUMBER%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20defaultValue%3A%20%220%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20SECONDS%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20type%3A%20Scratch.ArgumentType.NUMBER%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20defaultValue%3A%20%220.1%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20AND_WAIT%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20type%3A%20Scratch.ArgumentType.STRING%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20menu%3A%20%22AND_WAIT%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20opcode%3A%20%22moveMouse%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20text%3A%20Scratch.translate(%22move%20mouse%20to%20x%3A%20%5BX%5D%20y%3A%20%5BY%5D%22)%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20blockType%3A%20Scratch.BlockType.COMMAND%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20arguments%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20X%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20type%3A%20Scratch.ArgumentType.NUMBER%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20defaultValue%3A%20%220%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20Y%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20type%3A%20Scratch.ArgumentType.NUMBER%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20defaultValue%3A%20%220%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%5D%2C%0A%20%20%20%20%20%20%20%20menus%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20KEYS%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20acceptReporters%3A%20true%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20items%3A%20%5B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20text%3A%20Scratch.translate(%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20default%3A%20%22space%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20description%3A%20%22Refers%20to%20the%20space%20key%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D)%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20value%3A%20%22%20%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22up%20arrow%22)%2C%20value%3A%20%22ArrowUp%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22down%20arrow%22)%2C%20value%3A%20%22ArrowDown%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22right%20arrow%22)%2C%20value%3A%20%22ArrowRight%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22left%20arrow%22)%2C%20value%3A%20%22ArrowLeft%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22enter%22)%2C%20value%3A%20%22Enter%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22backspace%22)%2C%20value%3A%20%22Backspace%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22delete%22)%2C%20value%3A%20%22Delete%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22shift%22)%2C%20value%3A%20%22Shift%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22caps%20lock%22)%2C%20value%3A%20%22CapsLock%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22scroll%20lock%22)%2C%20value%3A%20%22ScrollLock%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22control%22)%2C%20value%3A%20%22Control%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22escape%22)%2C%20value%3A%20%22Escape%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22insert%22)%2C%20value%3A%20%22Insert%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22home%22)%2C%20value%3A%20%22Home%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22end%22)%2C%20value%3A%20%22End%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22page%20up%22)%2C%20value%3A%20%22PageUp%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22page%20down%22)%2C%20value%3A%20%22PageDown%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22a%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22b%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22c%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22d%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22e%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22f%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22g%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22h%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22i%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22j%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22k%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22l%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22m%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22n%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22o%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22p%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22q%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22r%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22s%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22t%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22u%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22v%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22w%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22x%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22y%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22z%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%220%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%221%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%222%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%223%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%224%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%225%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%226%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%227%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%228%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%229%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22-%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%2C%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22.%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%60%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%3D%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%5B%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%5D%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%5C%5C%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%3B%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22'%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%2F%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22~%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%2B%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22!%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%3A%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22*%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%23%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22(%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22)%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%3F%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%3C%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%3E%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%22%40%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20'%22'%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%5D%2C%0A%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20BUTTONS%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20acceptReporters%3A%20true%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20items%3A%20%5B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22left%22)%2C%20value%3A%20%220%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22middle%22)%2C%20value%3A%20%221%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%20text%3A%20Scratch.translate(%22right%22)%2C%20value%3A%20%222%22%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%5D%2C%0A%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20AND_WAIT%3A%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20acceptReporters%3A%20true%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20items%3A%20%5B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20text%3A%20Scratch.translate(%22continue%22)%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20value%3A%20%22without%20waiting%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20text%3A%20Scratch.translate(%22wait%22)%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20value%3A%20%22and%20wait%22%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%5D%2C%0A%20%20%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%20%20%7D%2C%0A%20%20%20%20%20%20%7D%3B%0A%20%20%20%20%7D%0A%0A%20%20%20%20pressKey(args)%20%7B%0A%20%20%20%20%20%20Scratch.vm.postIOData(%22keyboard%22%2C%20%7B%0A%20%20%20%20%20%20%20%20key%3A%20Scratch.Cast.toString(args.KEY)%2C%0A%20%20%20%20%20%20%20%20isDown%3A%20true%2C%0A%20%20%20%20%20%20%7D)%3B%0A%0A%20%20%20%20%20%20return%20doLater(args.SECONDS%2C%20args.AND_WAIT%2C%20()%20%3D%3E%20%7B%0A%20%20%20%20%20%20%20%20Scratch.vm.postIOData(%22keyboard%22%2C%20%7B%0A%20%20%20%20%20%20%20%20%20%20key%3A%20Scratch.Cast.toString(args.KEY)%2C%0A%20%20%20%20%20%20%20%20%20%20isDown%3A%20false%2C%0A%20%20%20%20%20%20%20%20%7D)%3B%0A%20%20%20%20%20%20%7D)%3B%0A%20%20%20%20%7D%0A%0A%20%20%20%20clickMouse(args)%20%7B%0A%20%20%20%20%20%20simulatedX%20%3D%20Scratch.Cast.toNumber(args.X)%3B%0A%20%20%20%20%20%20simulatedY%20%3D%20Scratch.Cast.toNumber(args.Y)%3B%0A%20%20%20%20%20%20postMouseData(%7B%0A%20%20%20%20%20%20%20%20isDown%3A%20true%2C%0A%20%20%20%20%20%20%20%20button%3A%20Scratch.Cast.toNumber(args.BUTTON)%2C%0A%20%20%20%20%20%20%7D)%3B%0A%0A%20%20%20%20%20%20return%20doLater(args.SECONDS%2C%20args.AND_WAIT%2C%20()%20%3D%3E%20%7B%0A%20%20%20%20%20%20%20%20postMouseData(%7B%0A%20%20%20%20%20%20%20%20%20%20isDown%3A%20false%2C%0A%20%20%20%20%20%20%20%20%20%20button%3A%20Scratch.Cast.toNumber(args.BUTTON)%2C%0A%20%20%20%20%20%20%20%20%7D)%3B%0A%20%20%20%20%20%20%7D)%3B%0A%20%20%20%20%7D%0A%0A%20%20%20%20moveMouse(args)%20%7B%0A%20%20%20%20%20%20simulatedX%20%3D%20Scratch.Cast.toNumber(args.X)%3B%0A%20%20%20%20%20%20simulatedY%20%3D%20Scratch.Cast.toNumber(args.Y)%3B%0A%20%20%20%20%20%20postMouseData(%7B%7D)%3B%0A%20%20%20%20%7D%0A%20%20%7D%0A%0A%20%20Scratch.extensions.register(new%20KeySimulation())%3B%0A%7D)(Scratch)%3B%0A%20%7D)(Scratch)%3B"]) {
+        vm.extensionManager.loadExtensionURL(extension);
+      }
+
+    } catch (e) {
+      handleError(e);
+    }
+  </script>
+  
+  
+    <script>
+      const getProjectData = (function() {
+        const storage = scaffolding.storage;
+        storage.onprogress = (total, loaded) => {
+          setProgress(interpolate(0.2, 0.98, loaded / total));
+        };
+        
+        storage.addWebStore(
+          [
+            storage.AssetType.ImageVector,
+            storage.AssetType.ImageBitmap,
+            storage.AssetType.Sound,
+            storage.AssetType.Font
+          ].filter(i => i),
+          (asset) => new URL('./assets/' + asset.assetId + '.' + asset.dataFormat, location).href
+        );
+        return () => new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.onload = () => {
+          resolve(xhr.response);
+        };
+        xhr.onerror = () => {
+          if (location.protocol === 'file:') {
+            reject(new Error('Zip environment must be used on a website, not on a local file. To fix this error, use the "Plain HTML" environment instead.'));
+          } else {
+            reject(new Error('Request to load project data failed.'));
+          }
+        };
+        xhr.onprogress = (e) => {
+          if (e.lengthComputable) {
+            setProgress(interpolate(0.1, 0.2, e.loaded / e.total));
+          }
+        };
+        xhr.responseType = 'arraybuffer';
+        xhr.open('GET', "./assets/project.json");
+        xhr.send();
+      });
+      })();
+    </script>
+  <script>
+    const run = async () => {
+      const projectData = await getProjectData();
+      await scaffolding.loadProject(projectData);
+      setProgress(1);
+      loadingScreen.hidden = true;
+      if (true) {
+        scaffolding.start();
+      } else {
+        launchScreen.hidden = false;
+        launchScreen.addEventListener('click', () => {
+          launchScreen.hidden = true;
+          scaffolding.start();
+        });
+        launchScreen.focus();
+      }
+    };
+    run().catch(handleError);
+  </script>
+</body>
+</html>
