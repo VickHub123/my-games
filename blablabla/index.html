@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube to Data URI Converter</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; line-height: 1.6; }
+        input, button, textarea { width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; }
+        textarea { height: 150px; font-family: monospace; font-size: 12px; }
+        .status { font-weight: bold; color: #d32f2f; }
+        .success { color: #2e7d32; }
+    </style>
+</head>
+<body>
+
+    <h2>YouTube to Data URI MP3</h2>
+    <p>Insira o ID do vídeo abaixo ou use o link com: <code>?v=ID_DO_VIDEO</code></p>
+    
+    <input type="text" id="video-id" placeholder="Exemplo: dQw4w9WgXcQ">
+    <button onclick="processarPorBotao()">Converter Vídeo</button>
+
+    <div id="status-msg" class="status"></div>
+    
+    <div id="resultado" style="display:none;">
+        <h3>Resultado (Data URI MP3):</h3>
+        <textarea id="data-uri-box" readonly onclick="this.select()"></textarea>
+        <p><small>ℹ️ Clique dentro da caixa para selecionar tudo e copiar.</small></p>
+        <audio id="audio-preview" controls></audio>
+    </div>
+
+    <script>
+        // 1. Captura o parâmetro '?v=' automaticamente ao carregar a página
+        window.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const videoId = urlParams.get('v');
+            
+            if (videoId) {
+                document.getElementById('video-id').value = videoId;
+                converterYoutubeParaDataUri(videoId);
+            }
+        });
+
+        function processarPorBotao() {
+            const videoId = document.getElementById('video-id').value.trim();
+            if (videoId) {
+                // Atualiza a URL do navegador sem recarregar a página (opcional, para estética)
+                const novaUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?v=' + videoId;
+                window.history.pushState({path:novaUrl}, '', novaUrl);
+                
+                converterYoutubeParaDataUri(videoId);
+            }
+        }
+
+        async function converterYoutubeParaDataUri(id) {
+            const statusDiv = document.getElementById('status-msg');
+            const resultadoDiv = document.getElementById('resultado');
+            const txtArea = document.getElementById('data-uri-box');
+            const audioPrevia = document.getElementById('audio-preview');
+
+            statusDiv.className = "status";
+            statusDiv.innerText = "🔄 Conectando ao servidor de conversão (isso pode levar até 1 minuto)...";
+            resultadoDiv.style.display = "none";
+
+            try {
+                // Usando uma API pública e gratuita de terceiros que gera o download do MP3 diretamente
+                // Nota: APIs públicas podem mudar ou falhar com o tempo dependendo das travas do YouTube
+                const apiUrl = `https://vexdh.org{id}`; 
+                
+                // 1. Busca o link direto do MP3 gerado pela API
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+
+                if (!data || !data.download_url) {
+                    throw new Error("Não foi possível obter o link de download da API.");
+                }
+
+                statusDiv.innerText = "⚡ Baixando arquivo de áudio e convertendo em string Base64...";
+
+                // 2. Faz o download do arquivo MP3 como um Blob binário pelo próprio navegador
+                const mp3Response = await fetch(data.download_url);
+                const blob = await mp3Response.blob();
+
+                // 3. Usa o FileReader nativo do navegador para transformar o Blob em Data URI
+                const reader = new FileReader();
+                reader.readAsDataURL(blob);
+                reader.onloadend = function() {
+                    const dataUri = reader.result; // Este é o Data URI final
+
+                    // Exibe na tela
+                    statusDiv.className = "status success";
+                    statusDiv.innerText = "✅ Sucesso!";
+                    txtArea.value = dataUri;
+                    audioPrevia.src = dataUri;
+                    resultadoDiv.style.display = "block";
+                };
+
+            } catch (error) {
+                console.error(error);
+                statusDiv.innerText = "❌ Erro ao processar o vídeo. Certifique-se de que o ID está correto ou tente outro vídeo mais curto.";
+            }
+        }
+    </script>
+</body>
+</html>
