@@ -6,9 +6,19 @@ on:
 
 jobs:
   purge-cache:
-    if: github.event.deployment_status.state == 'success' && github.event.deployment_status.deployment.ref == 'main'
     runs-on: ubuntu-latest
     steps:
+      - name: Repetir ate que o status seja true
+        run: |
+          STATUS_VALIDO="false"
+          while [ "$STATUS_VALIDO" = "false" ]; do
+            if [ "${{ github.event.deployment_status.state == 'success' && github.event.deployment_status.deployment.ref == 'main' }}" = "true" ]; then
+              STATUS_VALIDO="true"
+            else
+              sleep 5
+            fi
+          done
+      
       - name: Purge jsDelivr
         uses: gacts/purge-jsdelivr-cache@v1
         with:
