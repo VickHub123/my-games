@@ -5,9 +5,7 @@ on:
 
 jobs:
   purge-cache:
-    if: |
-      github.event.deployment_status.state == 'success'
-      github.event.deployment_status.deployment.ref == 'main'
+    if: github.event.deployment_status.state == 'success' && github.event.deployment_status.deployment.ref == 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Purge jsDelivr
