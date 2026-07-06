@@ -1,12 +1,11 @@
 name: Purge jsDelivr Cache
 
 on:
-  push:
-    branches:
-      - main
+  deployment_status
 
 jobs:
   purge-cache:
+    if: github.event.deployment_status.state == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Purge jsDelivr
