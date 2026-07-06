@@ -5,9 +5,15 @@ on:
 
 jobs:
   purge-cache:
-    if: github.event.deployment_status.state == 'success' && github.event.deployment_status.deployment.ref == 'main'
     runs-on: ubuntu-latest
     steps:
+      - name: Wait Github
+        uses: anton-yurchenko/gh-action-http-status-check@v1
+        with:
+          url: 'https://githubusercontent.com'
+          status-code: 200
+          timeout: 60
+      
       - name: Purge jsDelivr
         uses: gacts/purge-jsdelivr-cache@v1
         with:
