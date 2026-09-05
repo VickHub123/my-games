@@ -173,8 +173,10 @@
 <html><head><style>
   html, body { margin: 0; padding: 0; background: #000; height: 100%; width: 100%; overflow: hidden; }
   body { display: block; }
-  /* Aplica zoom 0.01 no iframe interno do YouTube para a UI ficar minúscula */
-  #yt { position: fixed; top: 50%; left: 50%; width: 10000%; height: 10000%; transform: translate(-50%, -50%) scale(0.01); transform-origin: center center; border: 0; }
+  /* Aplica zoom 0.01 no iframe interno do YouTube para a UI ficar minúscula.
+     Usa 'zoom' (CSS nativo) em vez de 'transform: scale' — mais performático
+     e estável em diferentes browsers e modos (guia vs iframe). */
+  #yt { position: fixed; top: 0; left: 0; width: 100%; height: 100%; border: 0; zoom: 0.01; }
 </style></head>
 <body>
 <iframe id="yt" src="${embedUrl}" allow="autoplay; encrypted-media" allowfullscreen="false" frameborder="0"></iframe>
