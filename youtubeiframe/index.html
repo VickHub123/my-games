@@ -9,20 +9,18 @@
   #container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; overflow: hidden; }
   /* O overlay transparente fica EM CIMA do iframe e captura todos os eventos do mouse */
   #shield { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: transparent; z-index: 10; }
-  /* Iframe com scale 0.01 para a UI ficar minúscula.
-     O scale fica aqui (página pai), não dentro do srcdoc, para
-     permitir que o JavaScript dentro do srcdoc acesse o <video>. */
+  /* Iframe normal, do tamanho da tela. A UI do YouTube é escondida
+     via CSS injetado no iframe (técnica srcdoc) e o shield transparente
+     impede interações. */
   #player { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; }
   #player iframe {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 10000%;  /* compensa scale 0.01 */
-    height: 10000%;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     border: 0;
     display: block;
-    transform: translate(-50%, -50%) scale(0.01);
-    transform-origin: center center;
   }
   #error { color: #fff; font: 14px monospace; padding: 20px; white-space: pre-wrap; text-align: center; }
 </style>
@@ -171,14 +169,12 @@
   `;
 
   // srcdoc = iframe com mesma origem da página pai, permite acessar DOM do YouTube
-  // IMPORTANTE: o iframe aqui está em TAMANHO NORMAL, sem scale.
-  // O scale fica no #player externo (página pai). Isso permite que
-  // o JavaScript dentro do srcdoc consiga acessar o <video> do YouTube.
   const srcdocHtml = `<!DOCTYPE html>
 <html><head><style>
   html, body { margin: 0; padding: 0; background: #000; height: 100%; width: 100%; overflow: hidden; }
   body { display: block; }
-  #yt { position: fixed; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
+  /* Aplica zoom 0.01 no iframe interno do YouTube para a UI ficar minúscula */
+  #yt { position: fixed; top: 50%; left: 50%; width: 10000%; height: 10000%; transform: translate(-50%, -50%) scale(0.01); transform-origin: center center; border: 0; }
 </style></head>
 <body>
 <iframe id="yt" src="${embedUrl}" allow="autoplay; encrypted-media" allowfullscreen="false" frameborder="0"></iframe>
@@ -199,85 +195,106 @@
   }
   ytFrame.addEventListener('load', () => {
     for (let i = 0; i < 20; i++) setTimeout(injectCSS, i * 300);
-    // Tenta anexar listener de 'ended' no <video> assim que carregar
-    tryAttachEndedListener();
   });
   setInterval(injectCSS, 1000);
 
   let unmuted = false;
   let endedSent = false;
+  let lastTime = 0;
+  let stuckCount = 0;
   const doLoop = ${shouldLoop};
   const featuresOn = ${featuresEnabled};
 
-  // Anexa listener de 'ended' no <video> do YouTube
-  function tryAttachEndedListener() {
+  // Função para mandar postMessage para a página pai (top-level)
+  function sendEndedMessage() {
+    if (!featuresOn || endedSent) return;
+    // Sobe na hierarquia de iframes até chegar no top
+    let target = window;
     try {
-      const doc = ytFrame.contentDocument;
-      if (!doc) return;
-      const v = doc.querySelector('video');
-      if (!v) {
-        // Vídeo ainda não carregou, tenta de novo em 500ms
-        setTimeout(tryAttachEndedListener, 500);
-        return;
+      while (target.parent && target.parent !== target) {
+        target = target.parent;
       }
-      v.addEventListener('ended', () => {
-        if (featuresOn && !endedSent) {
-          // Tenta várias formas de mandar postMessage para o top
-          try {
-            window.top.postMessage('videoended', '*');
-          } catch (e) {}
-          try {
-            window.parent.postMessage('videoended', '*');
-          } catch (e) {}
-          try {
-            window.parent.parent && window.parent.parent.postMessage('videoended', '*');
-          } catch (e) {}
-          endedSent = true;
-        }
+    } catch (e) {}
+    try { target.postMessage('videoended', '*'); } catch (e) {}
+    // Também tenta direto
+    try { window.parent.postMessage('videoended', '*'); } catch (e) {}
+    try { window.top.postMessage('videoended', '*'); } catch (e) {}
+    endedSent = true;
+  }
+
+  // Watchdog principal: monitora play, unmute, e fim do vídeo
+  setInterval(() => {
+    try {
+      const v = ytFrame.contentDocument && ytFrame.contentDocument.querySelector('video');
+      if (!v) return;
+
+      // Unmute
+      if (!unmuted && v.muted) {
+        v.muted = false;
+        v.volume = 1;
+        unmuted = true;
+      }
+      if (v.volume < 1) v.volume = 1;
+
+      // Detecta fim do vídeo por múltiplos critérios:
+      const time = v.currentTime || 0;
+      const dur = v.duration || 0;
+      const ended = v.ended;
+      const paused = v.paused;
+
+      // Critério 1: propriedade ended
+      if (ended) {
+        sendEndedMessage();
         if (doLoop) {
           v.currentTime = 0;
           v.play().catch(() => {});
           setTimeout(() => { endedSent = false; }, 1000);
         }
-      });
-      // Também monitora via polling (caso o evento 'ended' não dispare)
-      setInterval(() => {
-        if (v.duration && v.currentTime >= v.duration - 0.3) {
-          if (featuresOn && !endedSent) {
-            try { window.top.postMessage('videoended', '*'); } catch (e) {}
-            try { window.parent.postMessage('videoended', '*'); } catch (e) {}
-            endedSent = true;
-          }
-          if (doLoop) {
-            v.currentTime = 0;
-            setTimeout(() => { endedSent = false; }, 1000);
-          }
-        } else if (v.currentTime < 1) {
-          endedSent = false;
-        }
-      }, 500);
-    } catch (e) {
-      setTimeout(tryAttachEndedListener, 500);
-    }
-  }
+        return;
+      }
 
-  // Watchdog: força play + unmute
-  setInterval(() => {
-    try {
-      const v = ytFrame.contentDocument && ytFrame.contentDocument.querySelector('video');
-      if (v) {
-        if (!unmuted && v.muted) {
-          v.muted = false;
-          v.volume = 1;
-          unmuted = true;
+      // Critério 2: currentTime >= duration - 0.5
+      if (dur > 0 && time >= dur - 0.5) {
+        sendEndedMessage();
+        if (doLoop) {
+          v.currentTime = 0;
+          setTimeout(() => { endedSent = false; }, 1000);
         }
-        if (v.volume < 1) v.volume = 1;
-        if (v.paused && v.currentTime >= 0) {
-          v.play().catch(() => {});
+        return;
+      }
+
+      // Critério 3: travou perto do fim (currentTime não anda e está perto do duration)
+      if (dur > 0 && time >= dur - 2) {
+        if (Math.abs(time - lastTime) < 0.1) {
+          stuckCount++;
+          if (stuckCount >= 3) { // travou por ~1.5s perto do fim
+            sendEndedMessage();
+            if (doLoop) {
+              v.currentTime = 0;
+              setTimeout(() => { endedSent = false; stuckCount = 0; }, 1000);
+            }
+            return;
+          }
+        } else {
+          stuckCount = 0;
         }
+      } else {
+        stuckCount = 0;
+      }
+
+      // Reseta endedSent quando volta pro início
+      if (time < 1) {
+        endedSent = false;
+      }
+
+      lastTime = time;
+
+      // Força play se pausado
+      if (paused && time >= 0 && time < dur - 1) {
+        v.play().catch(() => {});
       }
     } catch (e) {}
-  }, 1000);
+  }, 300);
 <\/script>
 </body></html>`;
 
