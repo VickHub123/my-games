@@ -9,20 +9,20 @@
   #container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; overflow: hidden; }
   /* O overlay transparente fica EM CIMA do iframe e captura todos os eventos do mouse */
   #shield { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: transparent; z-index: 10; }
-  /* Iframe com zoom 0.3 e centralizado usando transform.
-     O vídeo preenche a tela, UI do YouTube fica minúscula. */
+  /* Iframe com scale 0.01 para a UI ficar minúscula.
+     O scale fica aqui (página pai), não dentro do srcdoc, para
+     permitir que o JavaScript dentro do srcdoc acesse o <video>. */
   #player { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; }
-  /* Iframe normal, do tamanho da tela. A UI do YouTube é escondida
-     via CSS injetado no iframe (técnica srcdoc) e o shield transparente
-     impede interações. */
   #player iframe {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 50%;
+    left: 50%;
+    width: 10000%;  /* compensa scale 0.01 */
+    height: 10000%;
     border: 0;
     display: block;
+    transform: translate(-50%, -50%) scale(0.01);
+    transform-origin: center center;
   }
   #error { color: #fff; font: 14px monospace; padding: 20px; white-space: pre-wrap; text-align: center; }
 </style>
@@ -171,12 +171,14 @@
   `;
 
   // srcdoc = iframe com mesma origem da página pai, permite acessar DOM do YouTube
+  // IMPORTANTE: o iframe aqui está em TAMANHO NORMAL, sem scale.
+  // O scale fica no #player externo (página pai). Isso permite que
+  // o JavaScript dentro do srcdoc consiga acessar o <video> do YouTube.
   const srcdocHtml = `<!DOCTYPE html>
 <html><head><style>
   html, body { margin: 0; padding: 0; background: #000; height: 100%; width: 100%; overflow: hidden; }
   body { display: block; }
-  /* Aplica zoom 0.01 no iframe interno do YouTube para a UI ficar minúscula */
-  #yt { position: fixed; top: 50%; left: 50%; width: 10000%; height: 10000%; transform: translate(-50%, -50%) scale(0.01); transform-origin: center center; border: 0; }
+  #yt { position: fixed; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
 </style></head>
 <body>
 <iframe id="yt" src="${embedUrl}" allow="autoplay; encrypted-media" allowfullscreen="false" frameborder="0"></iframe>
