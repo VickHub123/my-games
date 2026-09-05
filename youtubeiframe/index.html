@@ -197,13 +197,69 @@
   }
   ytFrame.addEventListener('load', () => {
     for (let i = 0; i < 20; i++) setTimeout(injectCSS, i * 300);
+    // Tenta anexar listener de 'ended' no <video> assim que carregar
+    tryAttachEndedListener();
   });
   setInterval(injectCSS, 1000);
-  // Watchdog: força play + unmute + loop (se habilitado) + postMessage
+
   let unmuted = false;
   let endedSent = false;
   const doLoop = ${shouldLoop};
   const featuresOn = ${featuresEnabled};
+
+  // Anexa listener de 'ended' no <video> do YouTube
+  function tryAttachEndedListener() {
+    try {
+      const doc = ytFrame.contentDocument;
+      if (!doc) return;
+      const v = doc.querySelector('video');
+      if (!v) {
+        // Vídeo ainda não carregou, tenta de novo em 500ms
+        setTimeout(tryAttachEndedListener, 500);
+        return;
+      }
+      v.addEventListener('ended', () => {
+        if (featuresOn && !endedSent) {
+          // Tenta várias formas de mandar postMessage para o top
+          try {
+            window.top.postMessage('videoended', '*');
+          } catch (e) {}
+          try {
+            window.parent.postMessage('videoended', '*');
+          } catch (e) {}
+          try {
+            window.parent.parent && window.parent.parent.postMessage('videoended', '*');
+          } catch (e) {}
+          endedSent = true;
+        }
+        if (doLoop) {
+          v.currentTime = 0;
+          v.play().catch(() => {});
+          setTimeout(() => { endedSent = false; }, 1000);
+        }
+      });
+      // Também monitora via polling (caso o evento 'ended' não dispare)
+      setInterval(() => {
+        if (v.duration && v.currentTime >= v.duration - 0.3) {
+          if (featuresOn && !endedSent) {
+            try { window.top.postMessage('videoended', '*'); } catch (e) {}
+            try { window.parent.postMessage('videoended', '*'); } catch (e) {}
+            endedSent = true;
+          }
+          if (doLoop) {
+            v.currentTime = 0;
+            setTimeout(() => { endedSent = false; }, 1000);
+          }
+        } else if (v.currentTime < 1) {
+          endedSent = false;
+        }
+      }, 500);
+    } catch (e) {
+      setTimeout(tryAttachEndedListener, 500);
+    }
+  }
+
+  // Watchdog: força play + unmute
   setInterval(() => {
     try {
       const v = ytFrame.contentDocument && ytFrame.contentDocument.querySelector('video');
@@ -214,24 +270,6 @@
           unmuted = true;
         }
         if (v.volume < 1) v.volume = 1;
-        // Detecta fim do vídeo
-        if (v.duration && v.currentTime >= v.duration - 0.5) {
-          if (!endedSent && featuresOn) {
-            // Manda postMessage para a página pai (top, porque estamos
-            // dentro de um srcdoc, então parent é o iframe externo)
-            try {
-              window.parent.parent.postMessage('videoended', '*');
-            } catch (e) {}
-            endedSent = true;
-          }
-          if (doLoop) {
-            v.currentTime = 0;
-            endedSent = false; // reseta para o próximo loop
-          }
-        } else if (v.currentTime < 1) {
-          // Reset quando volta pro início (após loop)
-          endedSent = false;
-        }
         if (v.paused && v.currentTime >= 0) {
           v.play().catch(() => {});
         }
