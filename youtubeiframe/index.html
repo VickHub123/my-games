@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>YouTube Stream</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; height: 100%; width: 100%; overflow: hidden; }
+  body { display: block; }
+  #container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; overflow: hidden; }
+  /* O overlay transparente fica EM CIMA do iframe e captura todos os eventos do mouse */
+  #shield { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: transparent; z-index: 10; }
+  /* Iframe com zoom 0.3 e centralizado usando transform.
+     O vídeo preenche a tela, UI do YouTube fica minúscula. */
+  #player { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; }
+  /* Iframe normal, do tamanho da tela. A UI do YouTube é escondida
+     via CSS injetado no iframe (técnica srcdoc) e o shield transparente
+     impede interações. */
+  #player iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+  }
+  #error { color: #fff; font: 14px monospace; padding: 20px; white-space: pre-wrap; text-align: center; }
+</style>
+</head>
+<body>
+<div id="container">
+  <div id="player"></div>
+  <div id="shield"></div>
+</div>
+<div id="error" hidden></div>
+<script>
+(() => {
+  'use strict';
+
+  const params = new URLSearchParams(location.search);
+  const urlParam = params.get('url') || params.get('v') || '';
+  // Tempo inicial em segundos. Aceita:
+  //   ?t=32       (segundos)
+  //   ?t=1m30s    (formato do YouTube)
+  //   &t=32 ou &t=1m30s na URL do YouTube (extraído do YouTube)
+  const tParam = params.get('t') || '';
+  // Loop: padrão true. Aceita ?loop=true ou ?loop=false
+  const loopParam = (params.get('loop') || 'true').toLowerCase();
+  const shouldLoop = loopParam !== 'false' && loopParam !== '0' && loopParam !== 'no';
+  // Features extras: ?features=true habilita postMessage para a página pai
+  const featuresParam = (params.get('features') || 'false').toLowerCase();
+  const featuresEnabled = featuresParam === 'true' || featuresParam === '1' || featuresParam === 'yes';
+
+  const playerDiv = document.getElementById('player');
+  const shield = document.getElementById('shield');
+  const errorEl = document.getElementById('error');
+
+  function showError(msg) {
+    errorEl.hidden = false;
+    document.getElementById('container').hidden = true;
+    errorEl.textContent = msg;
+  }
+
+  function extractYouTubeId(input) {
+    if (!input) return '';
+    const s = String(input).trim();
+    if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/shorts\/)([A-Za-z0-9_-]{11})/,
+      /[?&]v=([A-Za-z0-9_-]{11})/,
+    ];
+    for (const p of patterns) {
+      const m = s.match(p);
+      if (m) return m[1];
+    }
+    return '';
+  }
+
+  // Converte tempo do YouTube para segundos.
+  // Aceita: "32", "1m30s", "1h2m30s", "90"
+  function parseYouTubeTime(t) {
+    if (!t) return 0;
+    t = String(t).trim();
+    // Se é só número, retorna direto
+    if (/^\d+$/.test(t)) return parseInt(t, 10);
+    // Formato tipo 1h2m30s ou 30s ou 5m
+    const m = t.match(/(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/);
+    if (!m) return 0;
+    const h = parseInt(m[1] || '0', 10);
+    const mm = parseInt(m[2] || '0', 10);
+    const s = parseInt(m[3] || '0', 10);
+    return h * 3600 + mm * 60 + s;
+  }
+
+  // Extrai o parâmetro t= da URL do YouTube se existir
+  function extractTimeFromUrl(input) {
+    if (!input) return '';
+    const m = String(input).match(/[?&]t=([^&]+)/);
+    return m ? m[1] : '';
+  }
+
+  const videoId = extractYouTubeId(urlParam);
+  if (!videoId) {
+    showError(
+      'Invalid URL!\n\n' +
+      'Available parameters:\n' +
+      '  url      = YouTube link (required)\n' +
+      '             Accepts: youtube.com/watch?v=ID, youtu.be/ID,\n' +
+      '             youtube.com/shorts/ID, or just the 11-char ID\n' +
+      '  t        = start time. Accepts seconds (32) or\n' +
+      '             YouTube format (1m30s, 1h2m30s)\n' +
+      '             Also works inside the YouTube URL (&t=)\n' +
+      '  loop     = true (default) or false. Loops the video\n' +
+      '  features = true or false. Enables postMessage to parent\n' +
+      '             window when video ends (sends "videoended")\n\n' +
+      'Examples:\n' +
+      '  ?url=https://youtu.be/dQw4w9WgXcQ\n' +
+      '  ?url=https://youtu.be/dQw4w9WgXcQ&t=32\n' +
+      '  ?url=https://youtu.be/dQw4w9WgXcQ&t=1m30s&loop=false\n' +
+      '  ?url=https://youtu.be/dQw4w9WgXcQ&features=true'
+    );
+    return;
+  }
+
+  // Resolve o tempo inicial: prioriza ?t=, depois extrai da URL
+  const tFromUrl = extractTimeFromUrl(urlParam);
+  const startSeconds = parseYouTubeTime(tParam || tFromUrl);
+  const startParam = startSeconds > 0 ? `&start=${startSeconds}` : '';
+
+  // O shield transparente fica POR CIMA do iframe.
+  // Captura mousemove e click, impedindo que cheguem no YouTube.
+  // O YouTube não detecta hover → UI não aparece.
+
+  // Sem mute=1 aqui — vamos dar unmute via JS depois do play começar.
+  // Muitos browsers exigem interaction prévia para autoplay com som,
+  // mas alguns (especialmente quando embed vem de outro contexto) liberam.
+  const embedUrl = `https://www.youtube.com/embed/${videoId}?controls=0&disablekb=1&fs=0&modestbranding=1&playsinline=1&rel=0&iv_load_policy=3&cc_load_policy=0&autoplay=1${startParam}`;
+
+  // CSS que esconde TODA a UI do YouTube
+  const hideCSS = `
+    .ytp-chrome-top, .ytp-chrome-bottom, .ytp-chrome-top-buttons,
+    .ytp-gradient-top, .ytp-gradient-bottom,
+    .ytp-watermark, .ytp-youtube-button, .ytp-iv-player-content,
+    .ytp-pause-overlay, .ytp-endscreen-previous, .ytp-endscreen-next,
+    .ytp-endscreen-content, .ytp-suggestion-set,
+    .ytp-ce-element, .ytp-ce-redirect-overlay,
+    .ytp-cards-button, .ytp-impression-link, .ytp-iv-video-info,
+    .iv-card, .ytp-iv-click-target, .ytp-show-tiles,
+    .ytp-tile, .ytp-tile-content,
+    .ytp-title, .ytp-title-link, .ytp-title-text,
+    .ytp-watch-later-button, .ytp-share-button,
+    .ytp-cued-thumbnail-overlay, .ytp-large-play-button,
+    .ytp-error, .ytp-error-player, .ytp-spinner,
+    .ytp-bezel, .ytp-bezel-text-wrapper,
+    .ytp-settings-menu, .ytp-popup, .ytp-panel,
+    .ytp-menu, .ytp-menuitem,
+    .ytp-mute-button, .ytp-volume-area,
+    .ytp-right-controls, .ytp-left-controls,
+    .ytp-progress-bar, .ytp-progress-bar-container,
+    .ytp-scrubber-container, .ytp-scrubber-button, .ytp-buffer,
+    .annotation, .video-annotations, .annotation-tile,
+    .ytp-annotation, .ytp-ce-annotation,
+    .ytp-suggestion-overlay, .ytp-endscreen-card, .ytp-button,
+    .ytp-fullscreen-button, .ytp-subtitles-button,
+    .ytp-captions-button, .ytp-share-icon, .ytp-share-panel,
+    .ytp-overflow-button, .ytp-miniplayer-button,
+    .ytp-pip-button, .ytp-remote-button,
+    button.ytp-button,
+    div[class*="ytp-"][class*="button"] { display: none !important; visibility: hidden !important; opacity: 0 !important; }
+    video, .html5-main-video { display: block !important; visibility: visible !important; opacity: 1 !important; }
+  `;
+
+  // srcdoc = iframe com mesma origem da página pai, permite acessar DOM do YouTube
+  const srcdocHtml = `<!DOCTYPE html>
+<html><head><style>
+  html, body { margin: 0; padding: 0; background: #000; height: 100%; width: 100%; overflow: hidden; }
+  body { display: block; }
+  /* Aplica zoom 0.01 no iframe interno do YouTube para a UI ficar minúscula */
+  #yt { position: fixed; top: 50%; left: 50%; width: 10000%; height: 10000%; transform: translate(-50%, -50%) scale(0.01); transform-origin: center center; border: 0; }
+</style></head>
+<body>
+<iframe id="yt" src="${embedUrl}" allow="autoplay; encrypted-media" allowfullscreen="false" frameborder="0"></iframe>
+<script>
+  const ytFrame = document.getElementById('yt');
+  const hideCSS = ${JSON.stringify(hideCSS)};
+  function injectCSS() {
+    try {
+      const doc = ytFrame.contentDocument;
+      if (!doc || !doc.head) return;
+      const existing = doc.getElementById('hide-yt-ui');
+      if (existing) existing.remove();
+      const style = doc.createElement('style');
+      style.id = 'hide-yt-ui';
+      style.textContent = hideCSS;
+      doc.head.appendChild(style);
+    } catch (e) {}
+  }
+  ytFrame.addEventListener('load', () => {
+    for (let i = 0; i < 20; i++) setTimeout(injectCSS, i * 300);
+  });
+  setInterval(injectCSS, 1000);
+  // Watchdog: força play + unmute + loop (se habilitado) + postMessage
+  let unmuted = false;
+  let endedSent = false;
+  const doLoop = ${shouldLoop};
+  const featuresOn = ${featuresEnabled};
+  setInterval(() => {
+    try {
+      const v = ytFrame.contentDocument && ytFrame.contentDocument.querySelector('video');
+      if (v) {
+        if (!unmuted && v.muted) {
+          v.muted = false;
+          v.volume = 1;
+          unmuted = true;
+        }
+        if (v.volume < 1) v.volume = 1;
+        // Detecta fim do vídeo
+        if (v.duration && v.currentTime >= v.duration - 0.5) {
+          if (!endedSent && featuresOn) {
+            // Manda postMessage para a página pai (top, porque estamos
+            // dentro de um srcdoc, então parent é o iframe externo)
+            try {
+              window.parent.parent.postMessage('videoended', '*');
+            } catch (e) {}
+            endedSent = true;
+          }
+          if (doLoop) {
+            v.currentTime = 0;
+            endedSent = false; // reseta para o próximo loop
+          }
+        } else if (v.currentTime < 1) {
+          // Reset quando volta pro início (após loop)
+          endedSent = false;
+        }
+        if (v.paused && v.currentTime >= 0) {
+          v.play().catch(() => {});
+        }
+      }
+    } catch (e) {}
+  }, 1000);
+<\/script>
+</body></html>`;
+
+  const iframe = document.createElement('iframe');
+  iframe.srcdoc = srcdocHtml;
+  iframe.setAttribute('frameborder', '0');
+  playerDiv.appendChild(iframe);
+
+  // O shield está acima do iframe (z-index 10)
+  // Captura mouse e teclado
+  shield.addEventListener('mousemove', e => {
+    e.stopPropagation();
+    e.preventDefault();
+  });
+  shield.addEventListener('click', e => {
+    e.stopPropagation();
+    e.preventDefault();
+  });
+  shield.addEventListener('wheel', e => {
+    e.stopPropagation();
+    e.preventDefault();
+  });
+  shield.addEventListener('contextmenu', e => {
+    e.stopPropagation();
+    e.preventDefault();
+  });
+
+  // Carrega IFrame API
+  if (window.YT && window.YT.Player) {
+    initYouTubeAPI();
+  } else {
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(tag);
+    window.onYouTubeIframeAPIReady = initYouTubeAPI;
+  }
+
+  let player;
+  function initYouTubeAPI() {
+    try {
+      player = new YT.Player(iframe, {
+        events: {
+          onReady: (event) => {
+            event.target.playVideo();
+            event.target.setSize(window.innerWidth, window.innerHeight);
+            // Tenta dar unmute
+            setTimeout(() => {
+              try { event.target.unMute(); event.target.setVolume(100); }
+              catch (e) {}
+            }, 800);
+            // Watchdog
+            setInterval(() => {
+              try {
+                const state = event.target.getPlayerState();
+                if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.ENDED) {
+                  event.target.seekTo(0);
+                  event.target.playVideo();
+                }
+                if (state === YT.PlayerState.CUED) {
+                  event.target.playVideo();
+                }
+              } catch (e) {}
+            }, 500);
+          },
+          onStateChange: (event) => {
+            if (event.data === YT.PlayerState.ENDED) {
+              event.target.seekTo(0);
+              event.target.playVideo();
+            }
+            if (event.data === YT.PlayerState.PAUSED) {
+              event.target.playVideo();
+            }
+          },
+        },
+      });
+    } catch (e) {}
+  }
+
+  function resize() {
+    iframe.style.width = window.innerWidth + 'px';
+    iframe.style.height = window.innerHeight + 'px';
+  }
+  window.addEventListener('resize', () => {
+    resize();
+    if (player && player.setSize) {
+      player.setSize(window.innerWidth, window.innerHeight);
+    }
+  });
+  resize();
+
+  // Bloqueia atalhos
+  document.addEventListener('keydown', e => {
+    if ([' ', 'k', 'Escape', 'f', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+})();
+</script>
+</body>
+</html>
