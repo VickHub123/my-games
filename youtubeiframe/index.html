@@ -225,26 +225,48 @@
   }
 
   // Watchdog principal: monitora play, unmute, e fim do vídeo
+  function tryUnmute() {
+    try {
+      const v = ytFrame.contentDocument && ytFrame.contentDocument.querySelector('video');
+      if (v) {
+        // Tenta várias formas de dar unmute
+        v.muted = false;
+        v.volume = 1;
+        v.setAttribute('muted', 'false');
+        v.removeAttribute('muted');
+        // Tenta também via propriedades do player do YouTube
+        try {
+          const player = ytFrame.contentWindow.yt && ytFrame.contentWindow.yt.player;
+          if (player && player.unMute) player.unMute();
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
+  // Tenta unmute várias vezes: 100ms, 500ms, 1s, 2s, 3s
+  setTimeout(tryUnmute, 100);
+  setTimeout(tryUnmute, 500);
+  setTimeout(tryUnmute, 1000);
+  setTimeout(tryUnmute, 2000);
+  setTimeout(tryUnmute, 3000);
+
   setInterval(() => {
     try {
       const v = ytFrame.contentDocument && ytFrame.contentDocument.querySelector('video');
       if (!v) return;
 
-      // Unmute
-      if (!unmuted && v.muted) {
+      // Unmute agressivo a cada check
+      if (v.muted || v.volume < 1) {
         v.muted = false;
         v.volume = 1;
-        unmuted = true;
       }
-      if (v.volume < 1) v.volume = 1;
 
-      // Detecta fim do vídeo por múltiplos critérios:
+      // Detecta fim do vídeo
       const time = v.currentTime || 0;
       const dur = v.duration || 0;
       const ended = v.ended;
       const paused = v.paused;
 
-      // Critério 1: propriedade ended
       if (ended) {
         sendEndedMessage();
         if (doLoop) {
@@ -255,7 +277,6 @@
         return;
       }
 
-      // Critério 2: currentTime >= duration - 0.5
       if (dur > 0 && time >= dur - 0.5) {
         sendEndedMessage();
         if (doLoop) {
@@ -265,11 +286,10 @@
         return;
       }
 
-      // Critério 3: travou perto do fim (currentTime não anda e está perto do duration)
       if (dur > 0 && time >= dur - 2) {
         if (Math.abs(time - lastTime) < 0.1) {
           stuckCount++;
-          if (stuckCount >= 3) { // travou por ~1.5s perto do fim
+          if (stuckCount >= 3) {
             sendEndedMessage();
             if (doLoop) {
               v.currentTime = 0;
@@ -284,14 +304,12 @@
         stuckCount = 0;
       }
 
-      // Reseta endedSent quando volta pro início
       if (time < 1) {
         endedSent = false;
       }
 
       lastTime = time;
 
-      // Força play se pausado
       if (paused && time >= 0 && time < dur - 1) {
         v.play().catch(() => {});
       }
