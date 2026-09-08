@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <title>YouTube Stream</title>
@@ -9,30 +9,12 @@
   #container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; overflow: hidden; }
   /* O overlay transparente fica EM CIMA do iframe e captura todos os eventos do mouse */
   #shield { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: transparent; z-index: 10; }
-  /* Botão "Click to start" — some depois do primeiro clique.
-     É necessário para que o browser libere o som (autoplay policy). */
-  #startBtn {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 20;
-    background: rgba(0, 0, 0, 0.7);
-    color: #fff;
-    border: 2px solid #fff;
-    padding: 20px 40px;
-    font: 16px sans-serif;
-    cursor: pointer;
-    border-radius: 8px;
-    text-align: center;
-    line-height: 1.4;
-  }
-  #startBtn:hover { background: rgba(0, 0, 0, 0.85); }
-  #startBtn[hidden] { display: none; }
+  /* Iframe com zoom 0.3 e centralizado usando transform.
+     O vídeo preenche a tela, UI do YouTube fica minúscula. */
+  #player { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; }
   /* Iframe normal, do tamanho da tela. A UI do YouTube é escondida
      via CSS injetado no iframe (técnica srcdoc) e o shield transparente
      impede interações. */
-  #player { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; }
   #player iframe {
     position: absolute;
     top: 0;
@@ -48,6 +30,7 @@
 <body>
 <div id="container">
   <div id="player"></div>
+  <div id="shield"></div>
 </div>
 <div id="error" hidden></div>
 <script>
@@ -61,15 +44,9 @@
   //   ?t=1m30s    (formato do YouTube)
   //   &t=32 ou &t=1m30s na URL do YouTube (extraído do YouTube)
   const tParam = params.get('t') || '';
-  // Loop: padrão true. Aceita ?loop=true ou ?loop=false
-  const loopParam = (params.get('loop') || 'true').toLowerCase();
-  const shouldLoop = loopParam !== 'false' && loopParam !== '0' && loopParam !== 'no';
-  // Features extras: ?features=true habilita postMessage para a página pai
-  const featuresParam = (params.get('features') || 'false').toLowerCase();
-  const featuresEnabled = featuresParam === 'true' || featuresParam === '1' || featuresParam === 'yes';
 
   const playerDiv = document.getElementById('player');
-  // const shield = document.getElementById('shield'); // removido — clique passa direto
+  const shield = document.getElementById('shield');
   const errorEl = document.getElementById('error');
 
   function showError(msg) {
@@ -118,24 +95,7 @@
 
   const videoId = extractYouTubeId(urlParam);
   if (!videoId) {
-    showError(
-      'Invalid URL!\n\n' +
-      'Available parameters:\n' +
-      '  url      = YouTube link (required)\n' +
-      '             Accepts: youtube.com/watch?v=ID, youtu.be/ID,\n' +
-      '             youtube.com/shorts/ID, or just the 11-char ID\n' +
-      '  t        = start time. Accepts seconds (32) or\n' +
-      '             YouTube format (1m30s, 1h2m30s)\n' +
-      '             Also works inside the YouTube URL (&t=)\n' +
-      '  loop     = true (default) or false. Loops the video\n' +
-      '  features = true or false. Enables postMessage to parent\n' +
-      '             window when video ends (sends "videoended")\n\n' +
-      'Examples:\n' +
-      '  ?url=https://youtu.be/dQw4w9WgXcQ\n' +
-      '  ?url=https://youtu.be/dQw4w9WgXcQ&t=32\n' +
-      '  ?url=https://youtu.be/dQw4w9WgXcQ&t=1m30s&loop=false\n' +
-      '  ?url=https://youtu.be/dQw4w9WgXcQ&features=true'
-    );
+    showError('URL inválida. Use: ?url=<link do youtube>');
     return;
   }
 
@@ -144,20 +104,14 @@
   const startSeconds = parseYouTubeTime(tParam || tFromUrl);
   const startParam = startSeconds > 0 ? `&start=${startSeconds}` : '';
 
-  // Shield removido — clique passa direto para o YouTube (necessário para libertar som)
+  // O shield transparente fica POR CIMA do iframe.
+  // Captura mousemove e click, impedindo que cheguem no YouTube.
+  // O YouTube não detecta hover → UI não aparece.
 
-  const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&disablekb=1&fs=0&modestbranding=1&playsinline=1&rel=0`;
-
-  // Cria iframe direto — sem srcdoc aninhado (pode ajudar autoplay)
-  const iframe = document.createElement('iframe');
-  iframe.src = embedUrl;
-  iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-  iframe.setAttribute('frameborder', '0');
-  iframe.style.width = '100%';
-  iframe.style.height = '100%';
-  iframe.style.border = '0';
-  iframe.style.display = 'block';
-  playerDiv.appendChild(iframe);
+  // Sem mute=1 aqui — vamos dar unmute via JS depois do play começar.
+  // Muitos browsers exigem interaction prévia para autoplay com som,
+  // mas alguns (especialmente quando embed vem de outro contexto) liberam.
+  const embedUrl = `https://www.youtube.com/embed/${videoId}?controls=0&disablekb=1&fs=0&modestbranding=1&playsinline=1&rel=0&iv_load_policy=3&cc_load_policy=0&autoplay=1${startParam}`;
 
   // CSS que esconde TODA a UI do YouTube
   const hideCSS = `
@@ -194,8 +148,80 @@
   `;
 
   // srcdoc = iframe com mesma origem da página pai, permite acessar DOM do YouTube
+  const srcdocHtml = `<!DOCTYPE html>
+<html><head><style>
+  html, body { margin: 0; padding: 0; background: #000; height: 100%; width: 100%; overflow: hidden; }
+  body { display: block; }
+  /* Aplica zoom 0.01 no iframe interno do YouTube para a UI ficar minúscula */
+  #yt { position: fixed; top: 50%; left: 50%; width: 10000%; height: 10000%; transform: translate(-50%, -50%) scale(0.01); transform-origin: center center; border: 0; }
+</style></head>
+<body>
+<iframe id="yt" src="${embedUrl}" allow="autoplay; encrypted-media" allowfullscreen="false" frameborder="0"></iframe>
+<script>
+  const ytFrame = document.getElementById('yt');
+  const hideCSS = ${JSON.stringify(hideCSS)};
+  function injectCSS() {
+    try {
+      const doc = ytFrame.contentDocument;
+      if (!doc || !doc.head) return;
+      const existing = doc.getElementById('hide-yt-ui');
+      if (existing) existing.remove();
+      const style = doc.createElement('style');
+      style.id = 'hide-yt-ui';
+      style.textContent = hideCSS;
+      doc.head.appendChild(style);
+    } catch (e) {}
+  }
+  ytFrame.addEventListener('load', () => {
+    for (let i = 0; i < 20; i++) setTimeout(injectCSS, i * 300);
+  });
+  setInterval(injectCSS, 1000);
+  // Watchdog: força play + unmute
+  let unmuted = false;
+  setInterval(() => {
+    try {
+      const v = ytFrame.contentDocument && ytFrame.contentDocument.querySelector('video');
+      if (v) {
+        // Tenta dar unmute (pode falhar se browser exigir interaction)
+        if (!unmuted && v.muted) {
+          v.muted = false;
+          v.volume = 1;
+          unmuted = true;
+        }
+        // Garante volume no máximo
+        if (v.volume < 1) v.volume = 1;
+        // Força play se pausado
+        if (v.paused && v.currentTime >= 0) {
+          v.play().catch(() => {});
+        }
+      }
+    } catch (e) {}
+  }, 1000);
+<\/script>
+</body></html>`;
 
-  // Shield não bloqueia mais — clique passa direto ao YouTube
+  const iframe = document.createElement('iframe');
+  iframe.srcdoc = srcdocHtml;
+  iframe.setAttribute('frameborder', '0');
+  playerDiv.appendChild(iframe);
+
+  // O shield está acima do iframe (z-index 10)
+  // Captura mouse e teclado
+  shield.addEventListener('mousemove', e => {
+    e.stopPropagation();
+    e.preventDefault();
+  });
+  shield.addEventListener('click', () => {
+    // Deixa passar — interação necessária para som
+  });
+  shield.addEventListener('wheel', e => {
+    e.stopPropagation();
+    e.preventDefault();
+  });
+  shield.addEventListener('contextmenu', e => {
+    e.stopPropagation();
+    e.preventDefault();
+  });
 
   // Carrega IFrame API
   if (window.YT && window.YT.Player) {
