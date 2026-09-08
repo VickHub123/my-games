@@ -49,7 +49,6 @@
 <div id="container">
   <div id="player"></div>
   <div id="shield"></div>
-  <button id="startBtn">Click to start<br><small>Enable sound</small></button>
 </div>
 <div id="error" hidden></div>
 <script>
@@ -153,7 +152,7 @@
   // Sem mute=1 aqui — vamos dar unmute via JS depois do play começar.
   // Muitos browsers exigem interaction prévia para autoplay com som,
   // mas alguns (especialmente quando embed vem de outro contexto) liberam.
-  const embedUrl = `https://www.youtube.com/embed/${videoId}?controls=0&disablekb=1&fs=0&modestbranding=1&playsinline=1&rel=0&iv_load_policy=3&cc_load_policy=0&autoplay=1&mute=0&enablejsapi=1${startParam}`;
+  const embedUrl = `https://www.youtube.com/embed/${videoId}?controls=0&disablekb=1&fs=0&modestbranding=1&playsinline=1&rel=0&iv_load_policy=3&cc_load_policy=0&autoplay=1&mute=1&enablejsapi=1&loop=1&playlist=${videoId}${startParam}`;
 
   // CSS que esconde TODA a UI do YouTube
   const hideCSS = `
@@ -350,30 +349,19 @@
     e.stopPropagation();
     e.preventDefault();
   });
-  shield.addEventListener('click', e => {
-    // Deixa o clique passar para o YouTube (necessário para liberar som via interação do usuário)
-    // Tenta dar play+unmute via JS também
+  shield.addEventListener('click', () => {
+    // Envia comando para o player do YouTube tentar unmute (enablejsapi=1)
     try {
       const srcdocIframe = playerDiv.querySelector('iframe');
-      if (srcdocIframe && srcdocIframe.contentDocument) {
-        const ytIframe = srcdocIframe.contentDocument.getElementById('yt');
+      if (srcdocIframe && srcdocIframe.contentWindow) {
+        srcdocIframe.contentWindow.postMessage({ event: 'command', func: 'unMute', args: '' }, '*');
+        srcdocIframe.contentWindow.postMessage({ event: 'command', func: 'setVolume', args: [100] }, '*');
+        srcdocIframe.contentWindow.postMessage({ event: 'command', func: 'playVideo', args: '' }, '*');
+        // Também envia diretamente para o iframe interno
+        const ytIframe = srcdocIframe.contentDocument && srcdocIframe.contentDocument.getElementById('yt');
         if (ytIframe && ytIframe.contentWindow) {
-          // Tenta via API do YouTube (enablejsapi=1)
-          try {
-            const ytPlayer = ytIframe.contentWindow.yt && ytIframe.contentWindow.yt.player;
-            if (ytPlayer && ytPlayer.unMute) ytPlayer.unMute();
-            if (ytPlayer && ytPlayer.setVolume) ytPlayer.setVolume(100);
-            if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();
-          } catch (e2) {}
-          // Tenta também acessar o vídeo diretamente (mesmo domínio do srcdoc não aplica, mas tenta)
-          try {
-            const v = ytIframe.contentDocument && ytIframe.contentDocument.querySelector('video');
-            if (v) {
-              v.muted = false;
-              v.volume = 1;
-              v.play().catch(() => {});
-            }
-          } catch (e3) {}
+          ytIframe.contentWindow.postMessage({ event: 'command', func: 'unMute', args: '' }, '*');
+          ytIframe.contentWindow.postMessage({ event: 'command', func: 'setVolume', args: [100] }, '*');
         }
       }
     } catch (e) {}
@@ -449,31 +437,6 @@
     }
   });
   resize();
-
-  // Botão de início: necessário para o browser liberar som (autoplay policy)
-  const startBtn = document.getElementById('startBtn');
-  if (startBtn) {
-    startBtn.addEventListener('click', () => {
-      startBtn.hidden = true;
-      // Tenta unmute e play via iframe do YouTube
-      try {
-        const srcdocIframe = document.querySelector('#player iframe');
-        if (srcdocIframe && srcdocIframe.contentDocument) {
-          const ytIframe = srcdocIframe.contentDocument.getElementById('yt');
-          if (ytIframe && ytIframe.contentWindow) {
-            try {
-              const ytPlayer = ytIframe.contentWindow.yt && ytIframe.contentWindow.yt.player;
-              if (ytPlayer) {
-                if (ytPlayer.unMute) ytPlayer.unMute();
-                if (ytPlayer.setVolume) ytPlayer.setVolume(100);
-                if (ytPlayer.playVideo) ytPlayer.playVideo();
-              }
-            } catch (e) {}
-          }
-        }
-      } catch (e) {}
-    });
-  }
 
   // Bloqueia atalhos
   document.addEventListener('keydown', e => {
