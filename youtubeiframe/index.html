@@ -48,7 +48,6 @@
 <body>
 <div id="container">
   <div id="player"></div>
-  <div id="shield"></div>
 </div>
 <div id="error" hidden></div>
 <script>
@@ -70,7 +69,7 @@
   const featuresEnabled = featuresParam === 'true' || featuresParam === '1' || featuresParam === 'yes';
 
   const playerDiv = document.getElementById('player');
-  const shield = document.getElementById('shield');
+  // const shield = document.getElementById('shield'); // removido — clique passa direto
   const errorEl = document.getElementById('error');
 
   function showError(msg) {
@@ -145,9 +144,7 @@
   const startSeconds = parseYouTubeTime(tParam || tFromUrl);
   const startParam = startSeconds > 0 ? `&start=${startSeconds}` : '';
 
-  // O shield transparente fica POR CIMA do iframe.
-  // Captura mousemove e click, impedindo que cheguem no YouTube.
-  // O YouTube não detecta hover → UI não aparece.
+  // Shield removido — clique passa direto para o YouTube (necessário para libertar som)
 
   // Sem mute=1 aqui — vamos dar unmute via JS depois do play começar.
   // Muitos browsers exigem interaction prévia para autoplay com som,
@@ -343,37 +340,7 @@
   iframe.setAttribute('frameborder', '0');
   playerDiv.appendChild(iframe);
 
-  // O shield está acima do iframe (z-index 10)
-  // Captura mouse, click e teclado
-  shield.addEventListener('mousemove', e => {
-    e.stopPropagation();
-    e.preventDefault();
-  });
-  shield.addEventListener('click', () => {
-    // Envia comando para o player do YouTube tentar unmute (enablejsapi=1)
-    try {
-      const srcdocIframe = playerDiv.querySelector('iframe');
-      if (srcdocIframe && srcdocIframe.contentWindow) {
-        srcdocIframe.contentWindow.postMessage({ event: 'command', func: 'unMute', args: '' }, '*');
-        srcdocIframe.contentWindow.postMessage({ event: 'command', func: 'setVolume', args: [100] }, '*');
-        srcdocIframe.contentWindow.postMessage({ event: 'command', func: 'playVideo', args: '' }, '*');
-        // Também envia diretamente para o iframe interno
-        const ytIframe = srcdocIframe.contentDocument && srcdocIframe.contentDocument.getElementById('yt');
-        if (ytIframe && ytIframe.contentWindow) {
-          ytIframe.contentWindow.postMessage({ event: 'command', func: 'unMute', args: '' }, '*');
-          ytIframe.contentWindow.postMessage({ event: 'command', func: 'setVolume', args: [100] }, '*');
-        }
-      }
-    } catch (e) {}
-  });
-  shield.addEventListener('wheel', e => {
-    e.stopPropagation();
-    e.preventDefault();
-  });
-  shield.addEventListener('contextmenu', e => {
-    e.stopPropagation();
-    e.preventDefault();
-  });
+  // Shield não bloqueia mais — clique passa direto ao YouTube
 
   // Carrega IFrame API
   if (window.YT && window.YT.Player) {
