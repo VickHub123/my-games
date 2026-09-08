@@ -146,10 +146,18 @@
 
   // Shield removido — clique passa direto para o YouTube (necessário para libertar som)
 
-  // Sem mute=1 aqui — vamos dar unmute via JS depois do play começar.
-  // Muitos browsers exigem interaction prévia para autoplay com som,
-  // mas alguns (especialmente quando embed vem de outro contexto) liberam.
-  const embedUrl = `https://www.youtube.com/embed/${videoId}?controls=0&disablekb=1&fs=0&modestbranding=1&playsinline=1&rel=0&iv_load_policy=3&cc_load_policy=0&autoplay=1&mute=1&enablejsapi=1&loop=1&playlist=${videoId}${startParam}`;
+  const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&disablekb=1&fs=0&modestbranding=1&playsinline=1&rel=0`;
+
+  // Cria iframe direto — sem srcdoc aninhado (pode ajudar autoplay)
+  const iframe = document.createElement('iframe');
+  iframe.src = embedUrl;
+  iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+  iframe.setAttribute('frameborder', '0');
+  iframe.style.width = '100%';
+  iframe.style.height = '100%';
+  iframe.style.border = '0';
+  iframe.style.display = 'block';
+  playerDiv.appendChild(iframe);
 
   // CSS que esconde TODA a UI do YouTube
   const hideCSS = `
@@ -186,159 +194,6 @@
   `;
 
   // srcdoc = iframe com mesma origem da página pai, permite acessar DOM do YouTube
-  const srcdocHtml = `<!DOCTYPE html>
-<html><head><style>
-  html, body { margin: 0; padding: 0; background: #000; height: 100%; width: 100%; overflow: hidden; }
-  body { display: block; }
-  /* Aplica zoom 0.01 no iframe interno do YouTube para a UI ficar minúscula.
-     Usa 'zoom' (CSS nativo) em vez de 'transform: scale' — mais performático
-     e estável em diferentes browsers e modos (guia vs iframe). */
-  #yt { position: fixed; top: 0; left: 0; width: 100%; height: 100%; border: 0; zoom: 0.01; }
-</style></head>
-<body>
-<iframe id="yt" src="${embedUrl}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen="false" frameborder="0"></iframe>
-<script>
-  const ytFrame = document.getElementById('yt');
-  const hideCSS = ${JSON.stringify(hideCSS)};
-  function injectCSS() {
-    try {
-      const doc = ytFrame.contentDocument;
-      if (!doc || !doc.head) return;
-      const existing = doc.getElementById('hide-yt-ui');
-      if (existing) existing.remove();
-      const style = doc.createElement('style');
-      style.id = 'hide-yt-ui';
-      style.textContent = hideCSS;
-      doc.head.appendChild(style);
-    } catch (e) {}
-  }
-  ytFrame.addEventListener('load', () => {
-    for (let i = 0; i < 20; i++) setTimeout(injectCSS, i * 300);
-  });
-  setInterval(injectCSS, 1000);
-
-  let unmuted = false;
-  let endedSent = false;
-  let lastTime = 0;
-  let stuckCount = 0;
-  const doLoop = ${shouldLoop};
-  const featuresOn = ${featuresEnabled};
-
-  // Função para mandar postMessage para a página pai (top-level)
-  function sendEndedMessage() {
-    if (!featuresOn || endedSent) return;
-    // Sobe na hierarquia de iframes até chegar no top
-    let target = window;
-    try {
-      while (target.parent && target.parent !== target) {
-        target = target.parent;
-      }
-    } catch (e) {}
-    try { target.postMessage('videoended', '*'); } catch (e) {}
-    // Também tenta direto
-    try { window.parent.postMessage('videoended', '*'); } catch (e) {}
-    try { window.top.postMessage('videoended', '*'); } catch (e) {}
-    endedSent = true;
-  }
-
-  // Watchdog principal: monitora play, unmute, e fim do vídeo
-  function tryUnmute() {
-    try {
-      const v = ytFrame.contentDocument && ytFrame.contentDocument.querySelector('video');
-      if (v) {
-        // Tenta várias formas de dar unmute
-        v.muted = false;
-        v.volume = 1;
-        v.setAttribute('muted', 'false');
-        v.removeAttribute('muted');
-        // Tenta também via propriedades do player do YouTube
-        try {
-          const player = ytFrame.contentWindow.yt && ytFrame.contentWindow.yt.player;
-          if (player && player.unMute) player.unMute();
-        } catch (e) {}
-      }
-    } catch (e) {}
-  }
-
-  // Tenta unmute várias vezes: 100ms, 500ms, 1s, 2s, 3s
-  setTimeout(tryUnmute, 100);
-  setTimeout(tryUnmute, 500);
-  setTimeout(tryUnmute, 1000);
-  setTimeout(tryUnmute, 2000);
-  setTimeout(tryUnmute, 3000);
-
-  setInterval(() => {
-    try {
-      const v = ytFrame.contentDocument && ytFrame.contentDocument.querySelector('video');
-      if (!v) return;
-
-      // Unmute agressivo a cada check
-      if (v.muted || v.volume < 1) {
-        v.muted = false;
-        v.volume = 1;
-      }
-
-      // Detecta fim do vídeo
-      const time = v.currentTime || 0;
-      const dur = v.duration || 0;
-      const ended = v.ended;
-      const paused = v.paused;
-
-      if (ended) {
-        sendEndedMessage();
-        if (doLoop) {
-          v.currentTime = 0;
-          v.play().catch(() => {});
-          setTimeout(() => { endedSent = false; }, 1000);
-        }
-        return;
-      }
-
-      if (dur > 0 && time >= dur - 0.5) {
-        sendEndedMessage();
-        if (doLoop) {
-          v.currentTime = 0;
-          setTimeout(() => { endedSent = false; }, 1000);
-        }
-        return;
-      }
-
-      if (dur > 0 && time >= dur - 2) {
-        if (Math.abs(time - lastTime) < 0.1) {
-          stuckCount++;
-          if (stuckCount >= 3) {
-            sendEndedMessage();
-            if (doLoop) {
-              v.currentTime = 0;
-              setTimeout(() => { endedSent = false; stuckCount = 0; }, 1000);
-            }
-            return;
-          }
-        } else {
-          stuckCount = 0;
-        }
-      } else {
-        stuckCount = 0;
-      }
-
-      if (time < 1) {
-        endedSent = false;
-      }
-
-      lastTime = time;
-
-      if (paused && time >= 0 && time < dur - 1) {
-        v.play().catch(() => {});
-      }
-    } catch (e) {}
-  }, 300);
-<\/script>
-</body></html>`;
-
-  const iframe = document.createElement('iframe');
-  iframe.srcdoc = srcdocHtml;
-  iframe.setAttribute('frameborder', '0');
-  playerDiv.appendChild(iframe);
 
   // Shield não bloqueia mais — clique passa direto ao YouTube
 
