@@ -10,7 +10,7 @@ html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *,*::before,*::after{box-sizing:inherit}
 html,body{margin:0;background:#000;color:#fff}
 body{min-height:100vh}
-#ed{min-height:100vh;max-width:860px;margin:0 auto;padding:40px 24px 40vh;outline:none;caret-color:#fff;
+#ed{zoom:var(--z,1);min-height:calc(100vh / var(--z,1));margin:0;padding:40px 24px calc(40vh / var(--z,1));outline:none;caret-color:#fff;
  font:17px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
  white-space:pre-wrap;word-break:break-word}
 ::selection{background:#355c9a;color:#fff}
@@ -42,7 +42,7 @@ s{color:#999}
 .bul::before{content:'\2022';display:inline-block;width:1.1em;color:#aaa}
 .l.act .cb,.l.act .bul{display:none}
 .fence:not(.act){color:transparent;font-size:.6em;min-height:0}
-#tb{position:fixed;display:none;z-index:10;gap:2px;padding:4px;background:#1b1b1b;border:1px solid #3a3a3a;border-radius:8px;
+#tb{position:fixed;transform:scale(var(--z,1));transform-origin:0 0;display:none;z-index:10;gap:2px;padding:4px;background:#1b1b1b;border:1px solid #3a3a3a;border-radius:8px;
  box-shadow:0 6px 20px rgba(0,0,0,.6);user-select:none;-webkit-user-select:none;font:14px system-ui,sans-serif}
 #tb button{background:none;border:0;color:#eee;min-width:30px;height:30px;border-radius:5px;cursor:pointer;font:inherit;padding:0 6px}
 #tb button:hover{background:#333}
@@ -53,6 +53,13 @@ s{color:#999}
 <div id="ed" contenteditable="true" spellcheck="false"></div>
 <div id="tb"></div>
 <script>
+let Z=1;
+(()=>{
+  const p=parseFloat(new URLSearchParams(location.search).get('size'));
+  const v=isFinite(p)&&p>0?Math.min(500,Math.max(25,p)):100;
+  Z=v/100;
+  document.documentElement.style.setProperty('--z',Z);
+})();
 const ed=document.getElementById('ed'),tb=document.getElementById('tb');
 const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const M=t=>'<span class="m">'+t+'</span>';
@@ -254,7 +261,7 @@ function updateTB(){
   if(dragging||!sel.rangeCount||sel.isCollapsed||!ed.contains(sel.anchorNode)){tb.style.display='none';return}
   const r=sel.getRangeAt(0).getBoundingClientRect();
   tb.style.display='flex';
-  const w=tb.offsetWidth,h=tb.offsetHeight;
+  const w=tb.offsetWidth*Z,h=tb.offsetHeight*Z;
   let top=r.top-h-8;if(top<8)top=r.bottom+8;
   const left=Math.max(8,Math.min(r.left+r.width/2-w/2,innerWidth-w-8));
   tb.style.top=top+'px';tb.style.left=left+'px';
