@@ -341,23 +341,31 @@ function importText(txt){
   if(x){setAct(x.s.line,x.e.line);setSel(x.s,x.e)}
   snap(lines,x&&x.s,true);updateTB();
 }
+function clearAll(){
+  const x=getSel();
+  ed.innerHTML=renderLines(['']).join('');
+  if(x){setAct(0,0);setSel({line:0,col:0})}
+  snap([''],{line:0,col:0},true);updateTB();
+}
 window.addEventListener('message',e=>{
   const d=e.data;let cmd=null,payload='',m;
   if(typeof d==='string'){
     if(/^\*?export\*?$/.test(d.trim())) cmd='export';
+    else if(/^\*?clear\*?$/.test(d.trim())) cmd='clear';
     else if((m=d.match(/^\*import\*([\s\S]*)$/))||(m=d.match(/^import(?![A-Za-z\u00C0-\u017F])([\s\S]*)$/))){
       cmd='import';payload=m[1].replace(/^(\r?\n|: ?| )/,'');
-      if(!/[\r\n]/.test(payload)) payload=payload.replace(/\\(\\|n)/g,(x,c)=>c==='n'?'\n':'\\');
     }
   }else if(d&&typeof d==='object'){
     const t=String(d.type||d.action||d.message||'').replace(/\*/g,'');
     if(t==='export') cmd='export';
+    else if(t==='clear') cmd='clear';
     else if(t==='import'){cmd='import';payload=String(d.text??d.data??d.content??'')}
   }
   if(cmd==='export'){
     const target=e.source||window.parent;
     try{target.postMessage(getLines().join('\n'),e.origin&&e.origin!=='null'?e.origin:'*')}catch(err){}
   }else if(cmd==='import') importText(payload);
+  else if(cmd==='clear') clearAll();
 });
 try{localStorage.removeItem('notas')}catch(e){}
 const init=[''];
