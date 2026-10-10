@@ -9,7 +9,8 @@ const siteURL = new URL('website/', scopeURL);              // /repo/website/
 const sitePath = siteURL.pathname;
 const indexURL = new URL('index.html', siteURL).href;
 const readyKey = new URL('__offline-ready', siteURL).href;  // marks a finished download
-const UPDATE_EVERY = 5 * 60 * 1000;                         // background update: at most every 5 min
+const FRESH_WINDOW = 60 * 1000;                             // skip the update check for page loads right after a successful one
+const WAIT_BUDGET = 3000;                                   // never delay a page load by more than this while checking for updates
 const FILE_TIMEOUT = 120 * 1000;                            // max time for a single file
 
 const log = (...args) => console.log('[offline]', ...args);
@@ -29,15 +30,18 @@ self.addEventListener('fetch', (e) => {
   let rel = url.pathname.slice(scopePath.length);
   if (rel === 'sw.js') return;
   const nav = req.mode === 'navigate';
+  const isRoot = rel === '' || rel === 'index.html';
+  if (!isRoot && rel.startsWith('website/')) rel = rel.slice('website/'.length);
 
-  // Root page: the site (once downloaded) or the launcher (first visit)
-  if (nav && (rel === '' || rel === 'index.html')) {
-    e.waitUntil(backgroundUpdate());
-    e.respondWith(rootPage());
+  if (nav) {
+    // Page load / reload: look for a newer version first, but never wait longer than
+    // WAIT_BUDGET (the update keeps running in the background and shows up on the next load)
+    const fresh = freshen(req);
+    e.waitUntil(fresh);
+    const settled = Promise.race([fresh, new Promise((r) => setTimeout(r, WAIT_BUDGET))]);
+    e.respondWith(settled.then(() => (isRoot ? rootPage() : serveSite(req, url, rel, nav))));
     return;
   }
-
-  if (rel.startsWith('website/')) rel = rel.slice('website/'.length);
   e.respondWith(serveSite(req, url, rel, nav));
 });
 
@@ -150,11 +154,18 @@ let current = null;
 let lastUpdate = 0;
 const runSync = () => current || (current = doSync().finally(() => { current = null; }));
 
-async function backgroundUpdate() {
-  if (!(await isReady()) || !navigator.onLine) return;
-  if (Date.now() - lastUpdate < UPDATE_EVERY) return;
-  lastUpdate = Date.now();
-  try { await runSync(); } catch (e) { lastUpdate = 0; log('background update failed:', e.message); }
+// Re-downloads the site when a page is loaded. A reload (F5 / hard reload) always checks;
+// other loads are skipped if a check succeeded in the last minute.
+async function freshen(req) {
+  if (!navigator.onLine || !(await isReady())) return;
+  const forced = req.cache === 'reload' || req.cache === 'no-cache';
+  if (!forced && Date.now() - lastUpdate < FRESH_WINDOW) return;
+  try {
+    await runSync();
+    lastUpdate = Date.now();
+  } catch (e) {
+    log('update check failed: ' + e.message);
+  }
 }
 
 // Fetch with a limit on the time to receive the response headers
