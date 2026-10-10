@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preparando o site…</title>
+<style>
+  :root {
+    --bg: #eef1f5; --card: #ffffff; --text: #17202b; --muted: #5d6b7b;
+    --accent: #1d5fd1; --track: #dde3ea; --line: #c9d1db; --err: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11161c; --card: #19212a; --text: #e8edf2; --muted: #93a1b0;
+      --accent: #4b86ee; --track: #2b3642; --line: #36424f; --err: #ff8f84;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; display: grid; place-items: center; padding: 16px;
+    background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { width: min(480px, 100%); background: var(--card); border-radius: 12px; padding: 28px; border: 1px solid var(--line); }
+  h1 { font-size: 1.3rem; margin: 0 0 6px; }
+  #status { margin: 0; }
+  #status.err { color: var(--err); }
+  .bar { height: 8px; border-radius: 99px; background: var(--track); overflow: hidden; margin: 20px 0 8px; }
+  #fill { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  #detail { margin: 0; color: var(--muted); font-size: .9rem; min-height: 1.4em; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+  button {
+    font: inherit; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: transparent; color: var(--text);
+  }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  #note { margin-top: 18px; font-size: .92rem; color: var(--muted); }
+  #note code { background: var(--track); padding: 1px 6px; border-radius: 5px; font-size: .88em; }
+  #note a { color: var(--accent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Preparando o site</h1>
+  <p id="status">Iniciando…</p>
+  <div class="bar"><div id="fill"></div></div>
+  <p id="detail"></p>
+
+  <div class="row">
+    <button id="openBtn" class="primary" hidden>Abrir o site</button>
+    <button id="syncBtn" hidden>Baixar de novo</button>
+    <button id="zipBtn" hidden>Salvar cópia em ZIP</button>
+    <button id="clearBtn" hidden>Apagar cópia offline</button>
+  </div>
+
+  <div id="note" hidden></div>
+</main>
+
+<script>
+(() => {
+  const SITE = 'website/';                 // pasta com o site
+  const CACHE = 'website-offline-v1';      // mesmo nome do sw.js
+  const siteURL = new URL(SITE, location.href);
+  const base = siteURL.pathname;
+  const indexURL = new URL('index.html', siteURL).href;
+  const $ = (id) => document.getElementById(id);
+
+  const setStatus = (t, err) => { $('status').textContent = t; $('status').classList.toggle('err', !!err); };
+  const setProgress = (d, t) => {
+    $('fill').style.width = (t ? Math.min(100, (d / t) * 100) : 0) + '%';
+    $('detail').textContent = t ? `${d} de ${t} arquivos` : '';
+  };
+  const launch = () => location.replace(indexURL);
+  const showButtons = (hasCopy) => {
+    ['openBtn', 'syncBtn', 'zipBtn', 'clearBtn'].forEach((id) => { $(id).hidden = !hasCopy; });
+  };
+
+  // ---------- Descoberta de arquivos ----------
+  function extractRefs(text, type) {
+    const out = new Set();
+    const add = (r) => {
+      r = (r || '').trim();
+      if (!r || /^(data:|mailto:|tel:|javascript:|blob:|about:|#)/i.test(r)) return;
+      out.add(r);
+    };
+    let m;
+    if (/html|xml|svg/i.test(type)) {
+      const attr = /\b(?:src|href|poster|manifest|action)\s*=\s*["']([^"']+)["']/gi;
+      while ((m = attr.exec(text))) add(m[1]);
+      const ss = /\bsrcset\s*=\s*["']([^"']+)["']/gi;
+      while ((m = ss.exec(text))) m[1].split(',').forEach((p) => add(p.trim().split(/\s+/)[0]));
+    }
+    const u = /url\(\s*["']?([^"')]+?)["']?\s*\)/gi;
+    while ((m = u.exec(text))) add(m[1]);
+    const imp = /@import\s+["']([^"']+)["']/gi;
+    while ((m = imp.exec(text))) add(m[1]);
+    if (/javascript|ecmascript|json|html/i.test(type)) {
+      const lit = /["'`]((?:\.{0,2}\/)?[\w@%+~\-.\/]+\.(?:html?|css|m?js|json|png|jpe?g|gif|webp|avif|svg|ico|mp3|wav|ogg|mp4|webm|woff2?|ttf|otf|wasm|txt|xml|glb|gltf|bin|pdf)(?:\?[^"'`]*)?)["'`]/gi;
+      while ((m = lit.exec(text))) add(m[1]);
+    }
+    return out;
+  }
+
+  // ---------- Download para o cache ----------
+  async function sync(cache) {
+    const seen = new Set(), queue = [], ok = new Set(), failed = [];
+    let done = 0, total = 0, active = 0, indexText = '';
+    const isText = (ct) => /html|css|javascript|ecmascript|json|xml|svg|text\/plain/i.test(ct);
+    const get = (u) => fetch(u, { cache: 'reload', headers: { 'X-Offline-Sync': '1' } });
+
+    function enqueue(u) {
+      if (u.origin !== location.origin || !u.pathname.startsWith(base)) return;
+      u.hash = ''; u.search = '';
+      const h = u.href;
+      if (seen.has(h)) return;
+      seen.add(h); queue.push(h); total++;
+    }
+    function parse(text, ct, from) {
+      const code = /javascript|ecmascript|json|html/i.test(ct);
+      for (const r of extractRefs(text, ct)) {
+        try { enqueue(new URL(r, from)); if (code) enqueue(new URL(r, siteURL)); } catch (e) {}
+      }
+    }
+
+    // 1) index.html primeiro: sem ele não há site
+    const first = await get(indexURL);
+    if (!first.ok) throw new Error(`website/index.html não encontrado (HTTP ${first.status})`);
+    const firstCopy = first.clone();
+    await cache.put(indexURL, first);
+    ok.add(indexURL); seen.add(indexURL); total = 1; done = 1;
+    indexText = await firstCopy.text();
+    parse(indexText, 'text/html', indexURL);
+
+    // 2) lista opcional de arquivos (files.json) e listagem de diretório
+    for (const m of [new URL('files.json', siteURL).href, new URL('files.json', location.href).href]) {
+      try {
+        const r = await get(m);
+        if (!r.ok) continue;
+        const j = await r.json();
+        const list = Array.isArray(j) ? j : j.files;
+        if (Array.isArray(list)) {
+          list.forEach((p) => { try { enqueue(new URL(typeof p === 'string' ? p : p.path, siteURL)); } catch (e) {} });
+        }
+      } catch (e) {}
+    }
+    enqueue(siteURL);
+
+    // 3) baixa tudo, seguindo as referências encontradas
+    async function one(href) {
+      const dir = href.endsWith('/');
+      const res = await get(href);
+      const ct = res.headers.get('content-type') || '';
+      if (dir) {
+        if (res.ok && /html/i.test(ct)) {
+          const t = await res.text();
+          if (t !== indexText) parse(t, ct, href);
+        }
+        return;
+      }
+      if (!res.ok) { failed.push(href); return; }
+      // servidor devolvendo a página inicial para um caminho que não existe
+      if (/text\/html/i.test(ct) && !/\.html?$/i.test(new URL(href).pathname)) return;
+      const copy = res.clone();
+      await cache.put(href, res);
+      ok.add(href);
+      if (isText(ct)) parse(await copy.text(), ct, href);
+    }
+
+    setProgress(done, total);
+    await Promise.all(Array.from({ length: 6 }, async () => {
+      for (;;) {
+        if (queue.length) {
+          const h = queue.shift();
+          active++;
+          try { await one(h); } catch (e) { failed.push(h); }
+          active--; done++;
+          setProgress(done, total);
+        } else if (active === 0) {
+          return;
+        } else {
+          await new Promise((r) => setTimeout(r, 25));
+        }
+      }
+    }));
+
+    // 4) remove do cache o que não existe mais no site
+    for (const req of await cache.keys()) {
+      if (!ok.has(req.url)) await cache.delete(req);
+    }
+    return { count: ok.size, missing: failed.length };
+  }
+
+  // ---------- Fluxo principal ----------
+  function showUnsupported() {
+    setStatus('O modo offline precisa de um servidor.', true);
+    $('fill').style.width = '0';
+    const n = $('note');
+    n.hidden = false;
+    n.innerHTML =
+      'Esta página foi aberta direto do disco (<code>file://</code>), e navegadores não permitem o cache offline assim. ' +
+      'Você pode <a href="' + SITE + 'index.html">abrir o site diretamente</a> (os arquivos já estão no seu computador), ' +
+      'ou servir a pasta com <code>python -m http.server</code> e abrir <code>http://localhost:8000</code>. ' +
+      'Hospedado em HTTPS, funciona sem configuração extra.';
+  }
+
+  async function start(auto) {
+    $('note').hidden = true;
+    if (location.protocol === 'file:' || !window.isSecureContext || !('serviceWorker' in navigator)) {
+      showUnsupported();
+      return;
+    }
+    try {
+      await navigator.serviceWorker.register('sw.js');
+      await navigator.serviceWorker.ready;
+    } catch (e) {
+      setStatus('Não consegui ativar o modo offline: ' + e.message, true);
+      return;
+    }
+
+    const cache = await caches.open(CACHE);
+    const hasCopy = !!(await cache.match(indexURL));
+    showButtons(hasCopy);
+    setProgress(0, 0);
+
+    if (!navigator.onLine) {
+      if (hasCopy) {
+        setStatus('Sem internet. Abrindo a cópia offline…');
+        if (auto) setTimeout(launch, 300);
+      } else {
+        setStatus('Sem internet e ainda não há cópia salva. Conecte-se uma vez para baixar o site.', true);
+      }
+      return;
+    }
+
+    try {
+      setStatus('Baixando os arquivos do site…');
+      $('syncBtn').disabled = true;
+      const r = await sync(cache);
+      $('syncBtn').disabled = false;
+      showButtons(true);
+      setStatus(
+        `Pronto: ${r.count} arquivos salvos para uso offline` +
+        (r.missing ? ` (${r.missing} referências não encontradas, ignoradas).` : '.')
+      );
+      if (auto) setTimeout(launch, 500);
+    } catch (e) {
+      $('syncBtn').disabled = false;
+      if (hasCopy) {
+        setStatus(`Não foi possível atualizar (${e.message}). Abrindo a cópia salva…`, true);
+        if (auto) setTimeout(launch, 1500);
+      } else {
+        setStatus('Erro: ' + e.message, true);
+      }
+    }
+  }
+
+  // ---------- Botões ----------
+  $('openBtn').onclick = launch;
+  $('syncBtn').onclick = () => start(false);
+  $('clearBtn').onclick = async () => {
+    if (!confirm('Apagar a cópia offline do site?')) return;
+    await caches.delete(CACHE);
+    showButtons(false);
+    setProgress(0, 0);
+    setStatus('Cópia offline apagada.');
+  };
+  $('zipBtn').onclick = async () => {
+    const btn = $('zipBtn');
+    btn.disabled = true;
+    try {
+      setStatus('Montando o ZIP…');
+      if (!window.JSZip) {
+        await new Promise((ok, fail) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+          s.onload = ok; s.onerror = () => fail(new Error('não consegui carregar o JSZip (sem internet?)'));
+          document.head.appendChild(s);
+        });
+      }
+      const zip = new JSZip();
+      const cache = await caches.open(CACHE);
+      for (const req of await cache.keys()) {
+        const path = decodeURIComponent(new URL(req.url).pathname.slice(base.length));
+        if (path) zip.file(path, await (await cache.match(req)).blob());
+      }
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'website.zip';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      setStatus('ZIP salvo.');
+    } catch (e) {
+      setStatus('Erro ao criar o ZIP: ' + e.message, true);
+    }
+    btn.disabled = false;
+  };
+
+  start(true);
+})();
+</script>
+</body>
+</html>
