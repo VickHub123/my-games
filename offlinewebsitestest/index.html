@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#000000">
-<title>Carregando…</title>
+<title>Loading…</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; color: #aaa; font: 16px system-ui, sans-serif; }
   body { display: grid; place-items: center; padding: 24px; text-align: center; }
@@ -15,41 +15,85 @@
 <p id="msg" hidden></p>
 <script>
 (async () => {
-  const msg = (t) => {
+  const log = (...a) => console.log('[offline]', ...a);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  const showMessage = (text) => {
     const p = document.getElementById('msg');
-    p.textContent = t; p.hidden = false;
+    p.textContent = text; p.hidden = false;
     addEventListener('online', () => location.reload(), { once: true });
   };
-  // Sem service worker (file:// ou http sem HTTPS): abre o site direto
-  const fallback = () => location.replace('website/index.html');
+  // No service worker (file:// or plain http): open the site directly
+  const fallback = (why) => { log(why + ' - opening website/index.html directly'); location.replace('website/index.html'); };
 
-  if (!('serviceWorker' in navigator) || !window.isSecureContext) return fallback();
+  // Sends a message to the worker and waits for the answer. Progress messages are passed to
+  // onProgress; if nothing arrives for stallMs, resolves with null.
+  function ask(worker, message, stallMs, onProgress) {
+    return new Promise((resolve) => {
+      const ch = new MessageChannel();
+      let timer;
+      const arm = () => { clearTimeout(timer); timer = setTimeout(() => resolve(null), stallMs); };
+      arm();
+      ch.port1.onmessage = (e) => {
+        const d = e.data;
+        if (d && d.type === 'progress') { if (onProgress) onProgress(d); arm(); return; }
+        clearTimeout(timer); resolve(d);
+      };
+      worker.postMessage(message, [ch.port2]);
+    });
+  }
 
-  // Proteção contra laço de recarregamento
+  // Waits for an activated worker that understands this launcher (an older worker may still
+  // be active right after an update, and it never answers).
+  async function currentWorker(reg) {
+    for (let i = 0; i < 6; i++) {
+      const w = reg.installing || reg.waiting || reg.active;
+      if (w && w.state !== 'activated') {
+        await new Promise((resolve) => {
+          const t = setTimeout(resolve, 5000);
+          w.addEventListener('statechange', () => {
+            if (w.state === 'activated' || w.state === 'redundant') { clearTimeout(t); resolve(); }
+          });
+        });
+      }
+      if (reg.active) {
+        const pong = await ask(reg.active, { type: 'ping' }, 1500);
+        if (pong && pong.ok) return reg.active;
+      }
+      await sleep(500);
+    }
+    return null;
+  }
+
+  if (!('serviceWorker' in navigator) || !window.isSecureContext) return fallback('service worker unavailable');
+
+  // Guard against reload loops
   const last = +sessionStorage.getItem('offline-launcher-reload') || 0;
-  if (Date.now() - last < 15000) return fallback();
+  if (Date.now() - last < 15000) return fallback('reload loop detected');
 
   try {
-    await navigator.serviceWorker.register('sw.js');
-    const reg = await navigator.serviceWorker.ready;
+    const reg = await navigator.serviceWorker.register('sw.js');
+    reg.update().catch(() => {});
+    const worker = await currentWorker(reg);
+    if (!worker) return fallback('service worker did not respond');
 
-    // Sem rede: nem tenta baixar
-    if (!navigator.onLine) return msg('Sem conexão. Conecte-se à internet uma vez para carregar o site.');
+    // No network: do not even try to download
+    if (!navigator.onLine) return showMessage('No connection. Connect to the internet once to load the site.');
 
-    const answer = await new Promise((resolve) => {
-      const ch = new MessageChannel();
-      ch.port1.onmessage = (e) => resolve(e.data);
-      reg.active.postMessage({ type: 'sync' }, [ch.port2]);
-    });
+    log('downloading the site for offline use...');
+    const answer = await ask(worker, { type: 'sync' }, 180000, (d) => log('downloading ' + d.done + '/' + d.total + ' files'));
 
-    if (answer && answer.ok) {
+    if (!answer) return fallback('download stalled');
+    if (answer.ok) {
+      log('download complete - loading the site');
       sessionStorage.setItem('offline-launcher-reload', String(Date.now()));
-      location.reload();          // agora o service worker entrega o site nesta mesma URL
+      location.reload();          // now the service worker serves the site at this same URL
     } else {
-      msg((answer && answer.error) || 'Não foi possível carregar o site.');
+      log('error: ' + answer.error);
+      showMessage(answer.error || 'Could not load the site.');
     }
   } catch (e) {
-    fallback();
+    fallback('error: ' + e.message);
   }
 })();
 </script>

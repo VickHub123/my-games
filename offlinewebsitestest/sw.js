@@ -1,21 +1,25 @@
-// Service worker: mostra o conteúdo da pasta "website" na raiz do site (a URL não muda)
-// e guarda tudo no cache para funcionar offline.
+// Service worker: serves the contents of the "website" folder at the site root
+// (the URL never changes) and keeps a full copy in the cache so it works offline.
 
+const VERSION = 2;                                          // the launcher checks this via "ping"
 const CACHE = 'website-offline-v1';
-const scopeURL = new URL(self.registration.scope);        // ex.: https://usuario.github.io/repo/
-const scopePath = scopeURL.pathname;                      // /repo/
-const siteURL = new URL('website/', scopeURL);            // /repo/website/
+const scopeURL = new URL(self.registration.scope);          // e.g. https://user.github.io/repo/
+const scopePath = scopeURL.pathname;                        // /repo/
+const siteURL = new URL('website/', scopeURL);              // /repo/website/
 const sitePath = siteURL.pathname;
 const indexURL = new URL('index.html', siteURL).href;
-const readyKey = new URL('__offline-ready', siteURL).href; // marca que o download terminou
-const UPDATE_EVERY = 5 * 60 * 1000;                       // atualização em segundo plano, no máx. a cada 5 min
+const readyKey = new URL('__offline-ready', siteURL).href;  // marks a finished download
+const UPDATE_EVERY = 5 * 60 * 1000;                         // background update: at most every 5 min
+const FILE_TIMEOUT = 120 * 1000;                            // max time for a single file
+
+const log = (...args) => console.log('[offline]', ...args);
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => {
   e.waitUntil(Promise.all([caches.delete('launcher-shell-v1'), self.clients.claim()]));
 });
 
-// ---------------------------------------------------------------- roteamento
+// ---------------------------------------------------------------- routing
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -26,7 +30,7 @@ self.addEventListener('fetch', (e) => {
   if (rel === 'sw.js') return;
   const nav = req.mode === 'navigate';
 
-  // Raiz da página: site (se já foi baixado) ou launcher (primeira visita)
+  // Root page: the site (once downloaded) or the launcher (first visit)
   if (nav && (rel === '' || rel === 'index.html')) {
     e.waitUntil(backgroundUpdate());
     e.respondWith(rootPage());
@@ -37,14 +41,25 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(serveSite(req, url, rel, nav));
 });
 
+const listeners = new Set();
+const emit = (m) => listeners.forEach((f) => { try { f(m); } catch (err) {} });
+
 self.addEventListener('message', (e) => {
-  if (e.data && e.data.type === 'sync' && e.ports[0]) {
-    const port = e.ports[0];
+  const d = e.data || {};
+  const port = e.ports && e.ports[0];
+  if (!port) return;
+  if (d.type === 'ping') {
+    port.postMessage({ ok: true, version: VERSION });
+  } else if (d.type === 'sync') {
+    const listener = (m) => port.postMessage(m);
+    listeners.add(listener);
     e.waitUntil(
-      runSync().then(
-        () => port.postMessage({ ok: true }),
-        (err) => port.postMessage({ ok: false, error: err.message })
-      )
+      runSync()
+        .then(
+          () => port.postMessage({ ok: true }),
+          (err) => port.postMessage({ ok: false, error: err.message })
+        )
+        .finally(() => listeners.delete(listener))
     );
   }
 });
@@ -58,7 +73,7 @@ async function rootPage() {
     if (home) return home;
   }
   try {
-    return await fetch(new URL('index.html', scopeURL).href, { cache: 'no-cache' }); // launcher
+    return await fetch(new URL('index.html', scopeURL).href, { cache: 'no-cache' }); // the launcher
   } catch (err) {
     return offlinePage();
   }
@@ -67,35 +82,35 @@ async function rootPage() {
 function offlinePage() {
   const html =
     '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
-    '<meta name="color-scheme" content="dark"><title>Sem conexão</title>' +
+    '<meta name="color-scheme" content="dark"><title>No connection</title>' +
     '<body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#000;color:#aaa;' +
     'font:16px system-ui,sans-serif;text-align:center;padding:24px">' +
-    '<p>Sem conexão. Conecte-se à internet uma vez para carregar o site.</p>' +
+    '<p>No connection. Connect to the internet once to load the site.</p>' +
     '<script>addEventListener("online",function(){location.reload()})<\/script>';
   return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-// ---------------------------------------------------------------- servir arquivos
+// ---------------------------------------------------------------- serving files
 async function serveSite(req, url, rel, nav) {
   const cache = await caches.open(CACHE);
   const target = new URL(rel, siteURL);
   const search = target.search;
   target.search = ''; target.hash = '';
   const p = target.pathname;
-  if (!p.startsWith(sitePath)) return new Response('Não encontrado', { status: 404 });
+  if (!p.startsWith(sitePath)) return new Response('Not found', { status: 404 });
 
-  // 1) cache: arquivo exato, "página.html" (URL sem extensão) ou "pasta/index.html"
+  // 1) cache: exact file, "page.html" (extensionless URL) or "folder/index.html"
   const tries = p.endsWith('/') ? [p + 'index.html'] : [p, p + '.html'];
   for (const t of tries) {
     const hit = await cache.match(location.origin + t);
     if (hit) return withRange(req, hit);
   }
-  // pasta pedida sem a barra final: redireciona para que links relativos funcionem
+  // folder requested without the trailing slash: redirect so relative links keep working
   if (nav && !p.endsWith('/') && (await cache.match(location.origin + p + '/index.html'))) {
     return Response.redirect(new URL(url.pathname + '/' + url.search, location.origin).href, 302);
   }
 
-  // 2) rede
+  // 2) network
   try {
     const res = await fetch(location.origin + p + search);
     if (res.redirected && nav) {
@@ -103,12 +118,12 @@ async function serveSite(req, url, rel, nav) {
     }
     return res;
   } catch (err) {
-    // 3) offline e não está no cache
+    // 3) offline and not cached
     if (nav) {
       const fb = (await cache.match(location.origin + sitePath + '404.html')) || (await cache.match(indexURL));
       if (fb) return fb;
     }
-    return new Response('Este arquivo não está disponível offline.', {
+    return new Response('This file is not available offline.', {
       status: 504, headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });
   }
@@ -130,7 +145,7 @@ async function withRange(req, hit) {
   });
 }
 
-// ---------------------------------------------------------------- download / atualização
+// ---------------------------------------------------------------- download / update
 let current = null;
 let lastUpdate = 0;
 const runSync = () => current || (current = doSync().finally(() => { current = null; }));
@@ -139,9 +154,10 @@ async function backgroundUpdate() {
   if (!(await isReady()) || !navigator.onLine) return;
   if (Date.now() - lastUpdate < UPDATE_EVERY) return;
   lastUpdate = Date.now();
-  try { await runSync(); } catch (e) { lastUpdate = 0; }
+  try { await runSync(); } catch (e) { lastUpdate = 0; log('background update failed:', e.message); }
 }
 
+// Fetch with a limit on the time to receive the response headers
 function get(u, ms) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), ms);
@@ -152,7 +168,7 @@ function extractRefs(text, type) {
   const out = new Set();
   const add = (r) => {
     r = (r || '').trim();
-    if (!r || /^(data:|mailto:|tel:|javascript:|blob:|about:|#)/i.test(r)) return;
+    if (!r || r.length > 300 || /^(data:|mailto:|tel:|javascript:|blob:|about:|#)/i.test(r)) return;
     out.add(r);
   };
   let m;
@@ -167,7 +183,7 @@ function extractRefs(text, type) {
   const imp = /@import\s+["']([^"']+)["']/gi;
   while ((m = imp.exec(text))) add(m[1]);
   if (/javascript|ecmascript|json|html/i.test(type)) {
-    const lit = /["'`]((?:\.{0,2}\/)?[\w@%+~\-.\/]+\.(?:html?|css|m?js|json|png|jpe?g|gif|webp|avif|svg|ico|mp3|wav|ogg|mp4|webm|woff2?|ttf|otf|wasm|txt|xml|glb|gltf|bin|pdf)(?:\?[^"'`]*)?)["'`]/gi;
+    const lit = /["'`]((?:\.{0,2}\/)?[\w@%+~\-.\/]{1,200}\.(?:html?|css|m?js|json|png|jpe?g|gif|webp|avif|svg|ico|mp3|wav|ogg|mp4|webm|woff2?|ttf|otf|wasm|txt|xml|glb|gltf|bin|pdf)(?:\?[^"'`\s]{0,100})?)["'`]/gi;
     while ((m = lit.exec(text))) add(m[1]);
   }
   return out;
@@ -176,7 +192,7 @@ function extractRefs(text, type) {
 async function doSync() {
   const cache = await caches.open(CACHE);
   const seen = new Set(), queue = [], ok = new Set();
-  let active = 0, indexText = '';
+  let active = 0, done = 0, missing = 0, indexText = '';
   const isText = (ct) => /html|css|javascript|ecmascript|json|xml|svg|text\/plain/i.test(ct);
 
   const add = (h) => { if (!seen.has(h)) { seen.add(h); queue.push(h); } };
@@ -193,18 +209,20 @@ async function doSync() {
     }
   }
 
-  // 1) index.html primeiro: serve também como teste de conexão (4 s)
+  // 1) index.html first: it doubles as the connection test (4 s limit)
+  log('checking connection and downloading website/index.html...');
   let first;
   try { first = await get(indexURL, 4000); }
-  catch (e) { throw new Error('Sem conexão com a internet.'); }
-  if (!first.ok) throw new Error('website/index.html não encontrado (HTTP ' + first.status + ').');
+  catch (e) { throw new Error('No internet connection.'); }
+  if (!first.ok) throw new Error('website/index.html not found (HTTP ' + first.status + ').');
   const firstCopy = first.clone();
   await cache.put(indexURL, first);
-  ok.add(indexURL); seen.add(indexURL);
+  ok.add(indexURL); seen.add(indexURL); done = 1;
   indexText = await firstCopy.text();
   parse(indexText, 'text/html', indexURL);
+  emit({ type: 'progress', done, total: seen.size });
 
-  // 2) lista opcional de arquivos (files.json)
+  // 2) optional file list (files.json)
   for (const m of [new URL('files.json', siteURL).href, new URL('files.json', scopeURL).href]) {
     try {
       const r = await get(m, 5000);
@@ -217,33 +235,40 @@ async function doSync() {
     } catch (e) {}
   }
   enqueue(siteURL);
+  add(new URL('404.html', siteURL).href);   // used as the offline "page not found"
 
-  // 3) baixa tudo, seguindo as referências encontradas
+  // 3) download everything, following the references found in each file
   async function one(href) {
-    const dir = href.endsWith('/');
-    const res = await get(href, 20000);
-    const ct = res.headers.get('content-type') || '';
-    if (dir) {                       // listagem de diretório, quando o servidor oferece
-      if (res.ok && /html/i.test(ct)) {
-        const t = await res.text();
-        if (t !== indexText) parse(t, ct, href);
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), FILE_TIMEOUT);
+    try {
+      const dir = href.endsWith('/');
+      const res = await fetch(href, { cache: 'no-cache', signal: ctl.signal });
+      const ct = res.headers.get('content-type') || '';
+      if (dir) {                     // directory listing, when the server provides one
+        if (res.ok && /html/i.test(ct)) {
+          const t = await res.text();
+          if (t !== indexText) parse(t, ct, href);
+        }
+        return;
       }
-      return;
+      if (!res.ok) { if (!href.endsWith('/404.html')) missing++; return; }
+      const path = new URL(href).pathname;
+      if (res.redirected) {          // e.g. "folder" -> "folder/": keep only the slash version
+        const to = new URL(res.url);
+        if (to.pathname === path + '/') enqueue(to);
+        return;
+      }
+      if (/text\/html/i.test(ct) && !/\.html?$/i.test(path)) {
+        if ((await res.clone().text()) === indexText) return;   // server returned the home page
+      }
+      const copy = res.clone();
+      await cache.put(href, res);
+      ok.add(href);
+      if (isText(ct)) parse(await copy.text(), ct, href);
+    } finally {
+      clearTimeout(timer);
     }
-    if (!res.ok) return;
-    const path = new URL(href).pathname;
-    if (res.redirected) {            // ex.: "pasta" -> "pasta/": guarda só a versão com barra
-      const to = new URL(res.url);
-      if (to.pathname === path + '/') enqueue(to);
-      return;
-    }
-    if (/text\/html/i.test(ct) && !/\.html?$/i.test(path)) {
-      if ((await res.clone().text()) === indexText) return;   // servidor devolveu a página inicial
-    }
-    const copy = res.clone();
-    await cache.put(href, res);
-    ok.add(href);
-    if (isText(ct)) parse(await copy.text(), ct, href);
   }
 
   await Promise.all(Array.from({ length: 6 }, async () => {
@@ -251,8 +276,9 @@ async function doSync() {
       if (queue.length) {
         const h = queue.shift();
         active++;
-        try { await one(h); } catch (e) {}
-        active--;
+        try { await one(h); } catch (e) { missing++; }
+        active--; done++;
+        emit({ type: 'progress', done, total: seen.size });
       } else if (active === 0) {
         return;
       } else {
@@ -261,10 +287,11 @@ async function doSync() {
     }
   }));
 
-  // 4) marca como concluído e remove do cache o que não existe mais no site
+  // 4) mark as complete and drop anything that no longer exists on the site
   await cache.put(readyKey, new Response('1'));
   ok.add(readyKey);
   for (const req of await cache.keys()) {
     if (!ok.has(req.url)) await cache.delete(req);
   }
+  log('done: ' + (ok.size - 1) + ' files cached' + (missing ? ', ' + missing + ' references not found (ignored)' : '') + '.');
 }
