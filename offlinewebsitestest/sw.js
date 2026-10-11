@@ -1,7 +1,7 @@
 // Service worker: serves the contents of the "website" folder at the site root
 // (the URL never changes) and keeps a full copy in the cache so it works offline.
 
-const VERSION = 2;                                          // the launcher checks this via "ping"
+const VERSION = 3;                                          // the launcher checks this via "ping"
 const CACHE = 'website-offline-v1';
 const scopeURL = new URL(self.registration.scope);          // e.g. https://user.github.io/repo/
 const scopePath = scopeURL.pathname;                        // /repo/
@@ -9,11 +9,12 @@ const siteURL = new URL('website/', scopeURL);              // /repo/website/
 const sitePath = siteURL.pathname;
 const indexURL = new URL('index.html', siteURL).href;
 const readyKey = new URL('__offline-ready', siteURL).href;  // marks a finished download
-const FRESH_WINDOW = 60 * 1000;                             // skip the update check for page loads right after a successful one
-const WAIT_BUDGET = 3000;                                   // never delay a page load by more than this while checking for updates
+const FRESH_WINDOW = 10 * 1000;                             // loads within 10 s of the previous check reuse it (reloads always check)
+const WAIT_BUDGET = 800;                                    // a page load never waits longer than this for the update check
 const FILE_TIMEOUT = 120 * 1000;                            // max time for a single file
 
 const log = (...args) => console.log('[offline]', ...args);
+log('service worker v' + VERSION + ' running');
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => {
@@ -32,6 +33,15 @@ self.addEventListener('fetch', (e) => {
   const nav = req.mode === 'navigate';
   const isRoot = rel === '' || rel === 'index.html';
   if (!isRoot && rel.startsWith('website/')) rel = rel.slice('website/'.length);
+
+  // Visiting /?reset clears the offline copy and downloads everything again
+  if (nav && isRoot && url.searchParams.has('reset')) {
+    e.respondWith(caches.delete(CACHE).then(() => {
+      log('offline copy cleared');
+      return Response.redirect(scopeURL.href, 302);
+    }));
+    return;
+  }
 
   if (nav) {
     // Page load / reload: look for a newer version first, but never wait longer than
@@ -116,7 +126,7 @@ async function serveSite(req, url, rel, nav) {
 
   // 2) network
   try {
-    const res = await fetch(location.origin + p + search);
+    const res = await fetch(location.origin + p + search, { cache: 'no-cache' });
     if (res.redirected && nav) {
       return new Response(await res.blob(), { status: res.status, headers: res.headers });
     }
@@ -159,7 +169,8 @@ const runSync = () => current || (current = doSync().finally(() => { current = n
 async function freshen(req) {
   if (!navigator.onLine || !(await isReady())) return;
   const forced = req.cache === 'reload' || req.cache === 'no-cache';
-  if (!forced && Date.now() - lastUpdate < FRESH_WINDOW) return;
+  if (!forced && Date.now() - lastUpdate < FRESH_WINDOW) { log('page load: update check skipped (done less than a minute ago)'); return; }
+  log('page load' + (forced ? ' (reload)' : '') + ': checking for a newer version...');
   try {
     await runSync();
     lastUpdate = Date.now();
@@ -168,11 +179,35 @@ async function freshen(req) {
   }
 }
 
+// HTML pages always bypass the browser cache and get a throwaway query parameter, so neither
+// the HTTP cache nor a CDN can hand back an old copy. Other files are revalidated (cheap 304s).
+function isPage(href) {
+  const p = new URL(href).pathname;
+  return p.endsWith('/') || /\.html?$/i.test(p) || !/\.[a-z0-9]+$/i.test(p.split('/').pop());
+}
+function netURL(href) {
+  if (!isPage(href)) return href;
+  const u = new URL(href);
+  u.searchParams.set('_t', Date.now());
+  return u.href;
+}
+const netInit = (href, extra) => Object.assign({ cache: isPage(href) ? 'reload' : 'no-cache' }, extra);
+
+// Conditional request headers: the server answers "304 Not Modified" (no body) for unchanged files
+function condHeaders(old) {
+  const h = {};
+  const etag = old && old.headers.get('etag');
+  const modified = old && old.headers.get('last-modified');
+  if (etag) h['If-None-Match'] = etag;
+  else if (modified) h['If-Modified-Since'] = modified;
+  return h;
+}
+
 // Fetch with a limit on the time to receive the response headers
-function get(u, ms) {
+function get(u, ms, headers) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), ms);
-  return fetch(u, { cache: 'no-cache', signal: c.signal }).finally(() => clearTimeout(t));
+  return fetch(netURL(u), netInit(u, { signal: c.signal, headers: headers || {} })).finally(() => clearTimeout(t));
 }
 
 function extractRefs(text, type) {
@@ -203,10 +238,17 @@ function extractRefs(text, type) {
 async function doSync() {
   const cache = await caches.open(CACHE);
   const seen = new Set(), queue = [], ok = new Set();
+  const updated = [];
   let active = 0, done = 0, missing = 0, indexText = '';
   const isText = (ct) => /html|css|javascript|ecmascript|json|xml|svg|text\/plain/i.test(ct);
 
   const add = (h) => { if (!seen.has(h)) { seen.add(h); queue.push(h); } };
+  const sig = (r) => r.headers.get('etag') || r.headers.get('last-modified') || '';
+  async function save(href, res) {              // stores a file and notes whether it changed
+    const old = await cache.match(href);
+    if (!old || !sig(res) || sig(old) !== sig(res)) updated.push(new URL(href).pathname.slice(sitePath.length) || '/');
+    await cache.put(href, res);
+  }
   function enqueue(u) {
     if (u.origin !== location.origin || !u.pathname.startsWith(sitePath)) return;
     u.hash = ''; u.search = '';
@@ -221,15 +263,21 @@ async function doSync() {
   }
 
   // 1) index.html first: it doubles as the connection test (4 s limit)
-  log('checking connection and downloading website/index.html...');
+  const t0 = Date.now();
+  log('checking for updates...');
+  const oldIndex = await cache.match(indexURL);
   let first;
-  try { first = await get(indexURL, 4000); }
+  try { first = await get(indexURL, 4000, condHeaders(oldIndex)); }
   catch (e) { throw new Error('No internet connection.'); }
-  if (!first.ok) throw new Error('website/index.html not found (HTTP ' + first.status + ').');
-  const firstCopy = first.clone();
-  await cache.put(indexURL, first);
+  if (first.status === 304 && oldIndex) {
+    indexText = await oldIndex.text();                 // unchanged: reuse the copy we already have
+  } else {
+    if (!first.ok) throw new Error('website/index.html not found (HTTP ' + first.status + ').');
+    const firstCopy = first.clone();
+    await save(indexURL, first);
+    indexText = await firstCopy.text();
+  }
   ok.add(indexURL); seen.add(indexURL); done = 1;
-  indexText = await firstCopy.text();
   parse(indexText, 'text/html', indexURL);
   emit({ type: 'progress', done, total: seen.size });
 
@@ -254,7 +302,14 @@ async function doSync() {
     const timer = setTimeout(() => ctl.abort(), FILE_TIMEOUT);
     try {
       const dir = href.endsWith('/');
-      const res = await fetch(href, { cache: 'no-cache', signal: ctl.signal });
+      const old = dir ? null : await cache.match(href);
+      const res = await fetch(netURL(href), netInit(href, { signal: ctl.signal, headers: condHeaders(old) }));
+      if (res.status === 304 && old) {   // unchanged: keep the cached file, but still follow its references
+        ok.add(href);
+        const octype = old.headers.get('content-type') || '';
+        if (isText(octype)) parse(await old.text(), octype, href);
+        return;
+      }
       const ct = res.headers.get('content-type') || '';
       if (dir) {                     // directory listing, when the server provides one
         if (res.ok && /html/i.test(ct)) {
@@ -274,7 +329,7 @@ async function doSync() {
         if ((await res.clone().text()) === indexText) return;   // server returned the home page
       }
       const copy = res.clone();
-      await cache.put(href, res);
+      await save(href, res);
       ok.add(href);
       if (isText(ct)) parse(await copy.text(), ct, href);
     } finally {
@@ -282,7 +337,7 @@ async function doSync() {
     }
   }
 
-  await Promise.all(Array.from({ length: 6 }, async () => {
+  await Promise.all(Array.from({ length: 10 }, async () => {
     for (;;) {
       if (queue.length) {
         const h = queue.shift();
@@ -304,5 +359,6 @@ async function doSync() {
   for (const req of await cache.keys()) {
     if (!ok.has(req.url)) await cache.delete(req);
   }
-  log('done: ' + (ok.size - 1) + ' files cached' + (missing ? ', ' + missing + ' references not found (ignored)' : '') + '.');
+  log('done in ' + (Date.now() - t0) + ' ms: ' + (ok.size - 1) + ' files' + (missing ? ', ' + missing + ' references not found (ignored)' : '') + '. ' +
+    (updated.length ? updated.length + ' new or changed: ' + updated.slice(0, 8).join(', ') + (updated.length > 8 ? ', ...' : '') : 'Nothing changed.'));
 }
