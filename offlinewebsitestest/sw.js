@@ -10,15 +10,32 @@ const sitePath = siteURL.pathname;
 const indexURL = new URL('index.html', siteURL).href;
 const readyKey = new URL('__offline-ready', siteURL).href;  // marks a finished download
 const FRESH_WINDOW = 10 * 1000;                             // loads within 10 s of the previous check reuse it (reloads always check)
-const WAIT_BUDGET = 800;                                    // a page load never waits longer than this for the update check
+const WAIT_BUDGET = 800;                                    // normal limit a page load waits for the update check
+const WAIT_CHANGED = 2500;                                  // ...extended to this when the check found something new (so it shows right away)
+const WAIT_UNKNOWN = 1500;                                  // ...or this when the server has not answered yet
 const FILE_TIMEOUT = 120 * 1000;                            // max time for a single file
 
 const log = (...args) => console.log('[offline]', ...args);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 log('service worker v' + VERSION + ' running');
 
-self.addEventListener('install', () => self.skipWaiting());
+let upgrading = false;                                      // true when this worker replaces an older one
+
+self.addEventListener('install', () => {
+  upgrading = !!self.registration.active;
+  return self.skipWaiting();
+});
 self.addEventListener('activate', (e) => {
-  e.waitUntil(Promise.all([caches.delete('launcher-shell-v1'), self.clients.claim()]));
+  e.waitUntil((async () => {
+    await caches.delete('launcher-shell-v1');
+    await self.clients.claim();
+    if (upgrading) {
+      // New worker version: reload the open pages once so they use it right away
+      log('service worker updated - reloading open pages');
+      const windows = await self.clients.matchAll({ type: 'window' });
+      windows.forEach((c) => { try { c.navigate(c.url).catch(() => {}); } catch (err) {} });
+    }
+  })());
 });
 
 // ---------------------------------------------------------------- routing
@@ -44,12 +61,11 @@ self.addEventListener('fetch', (e) => {
   }
 
   if (nav) {
-    // Page load / reload: look for a newer version first, but never wait longer than
-    // WAIT_BUDGET (the update keeps running in the background and shows up on the next load)
+    // Page load / reload: look for a newer version first, with a short time limit
+    // (an unfinished update keeps running in the background and shows up on the next load)
     const fresh = freshen(req);
     e.waitUntil(fresh);
-    const settled = Promise.race([fresh, new Promise((r) => setTimeout(r, WAIT_BUDGET))]);
-    e.respondWith(settled.then(() => (isRoot ? rootPage() : serveSite(req, url, rel, nav))));
+    e.respondWith(waitForUpdate(fresh).then(() => (isRoot ? rootPage() : serveSite(req, url, rel, nav))));
     return;
   }
   e.respondWith(serveSite(req, url, rel, nav));
@@ -164,6 +180,17 @@ let current = null;
 let lastUpdate = 0;
 const runSync = () => current || (current = doSync().finally(() => { current = null; }));
 
+// Waits for the update check, but only briefly. If the check already found a newer
+// index.html, it waits a bit longer so that the new version is shown in this very load.
+let indexState = null;                                      // null = unknown, 'same' or 'changed'
+async function waitForUpdate(fresh) {
+  const late = () => 'late';
+  if ((await Promise.race([fresh, sleep(WAIT_BUDGET).then(late)])) !== 'late') return;
+  const extra = indexState === 'changed' ? WAIT_CHANGED : indexState === null ? WAIT_UNKNOWN : 0;
+  if (extra > WAIT_BUDGET && (await Promise.race([fresh, sleep(extra - WAIT_BUDGET).then(late)])) !== 'late') return;
+  log('page shown from the cache; the update is still downloading and will show on the next load');
+}
+
 // Re-downloads the site when a page is loaded. A reload (F5 / hard reload) always checks;
 // other loads are skipped if a check succeeded in the last minute.
 async function freshen(req) {
@@ -264,6 +291,7 @@ async function doSync() {
 
   // 1) index.html first: it doubles as the connection test (4 s limit)
   const t0 = Date.now();
+  indexState = null;
   log('checking for updates...');
   const oldIndex = await cache.match(indexURL);
   let first;
@@ -278,6 +306,10 @@ async function doSync() {
     indexText = await firstCopy.text();
   }
   ok.add(indexURL); seen.add(indexURL); done = 1;
+  indexState = updated.length ? 'changed' : 'same';
+  log('website/index.html: ' + (indexState === 'changed' ? 'NEW version found' : 'unchanged on the server') +
+    ' (' + (Date.now() - t0) + ' ms, last-modified: ' +
+    (first.headers.get('last-modified') || (oldIndex && oldIndex.headers.get('last-modified')) || 'n/a') + ')');
   parse(indexText, 'text/html', indexURL);
   emit({ type: 'progress', done, total: seen.size });
 
